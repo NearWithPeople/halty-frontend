@@ -1,0 +1,78 @@
+{
+  "kind": "collectionType",
+  "collectionName": "applications",
+  "info": {
+    "singularName": "application",
+    "pluralName": "applications",
+    "displayName": "Application (Отклик)",
+    "description": "Отклики соискателей на смены"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "attributes": {
+    "role": {
+      "type": "string",
+      "required": true
+    },
+    "company": {
+      "type": "string",
+      "required": true
+    },
+    "workerName": {
+      "type": "string",
+      "required": true
+    },
+    "workerPhone": {
+      "type": "string"
+    },
+    "workerRating": {
+      "type": "float",
+      "default": 5
+    },
+    "location": {
+      "type": "string",
+      "required": true
+    },
+    "lat": {
+      "type": "float"
+    },
+    "lng": {
+      "type": "float"
+    },
+    "salary": {
+      "type": "string",
+      "required": true
+    },
+    "status": {
+      "type": "enumeration",
+      "enum": [
+        "pending",
+        "active",
+        "cancelled",
+        "rejected"
+      ],
+      "default": "pending"
+    },
+    "statusLabel": {
+      "type": "string",
+      "default": "Ожидает"
+    },
+    "step": {
+      "type": "integer",
+      "default": 1
+    },
+    "scheduleDate": {
+      "type": "string"
+    },
+    "duration": {
+      "type": "string"
+    },
+    "rejectionReason": {
+      "type": "string"
+    },
+    "messages": {
+      "type": "json"
+    }
+  }
+}

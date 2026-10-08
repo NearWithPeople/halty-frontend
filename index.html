@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#f1f5f9" />
+    <script>
+      (function () {
+        var pref = localStorage.getItem('halty_theme_preference') || 'system';
+        var dark =
+          pref === 'dark' ||
+          (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+      })();
+    </script>
+    <meta name="description" content="Интерактивное веб-приложение с картами Mapbox со стандартным интерфейсом навигации, поиском, маршрутами и 3D слоями" />
+    <title>Карты Mapbox — Интерактивный сервис карт</title>
+    <link rel="preconnect" href="https://api.mapbox.com" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Geologica:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  </head>
+  <body class="w-full min-h-dvh overflow-x-hidden bg-slate-100 dark:bg-slate-950">
+    <div id="root" class="w-full min-h-dvh"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

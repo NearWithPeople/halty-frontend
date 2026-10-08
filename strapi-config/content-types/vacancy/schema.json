@@ -1,0 +1,109 @@
+{
+  "kind": "collectionType",
+  "collectionName": "vacancies",
+  "info": {
+    "singularName": "vacancy",
+    "pluralName": "vacancies",
+    "displayName": "Vacancy (Смена)",
+    "description": "Смены и подработки на карте Минска"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "attributes": {
+    "title": {
+      "type": "string",
+      "required": true
+    },
+    "company": {
+      "type": "string",
+      "required": true
+    },
+    "employerName": {
+      "type": "string",
+      "default": "АДМИН"
+    },
+    "salary": {
+      "type": "string",
+      "required": true
+    },
+    "category": {
+      "type": "enumeration",
+      "enum": [
+        "horeca",
+        "parks_green",
+        "retail",
+        "delivery",
+        "it_creative",
+        "service"
+      ],
+      "required": true
+    },
+    "categoryLabel": {
+      "type": "string",
+      "required": true
+    },
+    "attachmentType": {
+      "type": "enumeration",
+      "enum": [
+        "building",
+        "ground_zone"
+      ],
+      "default": "building"
+    },
+    "lat": {
+      "type": "float",
+      "required": true
+    },
+    "lng": {
+      "type": "float",
+      "required": true
+    },
+    "address": {
+      "type": "string"
+    },
+    "locationName": {
+      "type": "string",
+      "required": true
+    },
+    "description": {
+      "type": "text",
+      "required": true
+    },
+    "requirements": {
+      "type": "json"
+    },
+    "schedule": {
+      "type": "string",
+      "required": true
+    },
+    "payoutType": {
+      "type": "string",
+      "required": true
+    },
+    "color": {
+      "type": "string",
+      "default": "#3b82f6"
+    },
+    "accentColor": {
+      "type": "string",
+      "default": "#1e3a8a"
+    },
+    "iconType": {
+      "type": "string",
+      "default": "coffee"
+    },
+    "buildingHeight": {
+      "type": "float",
+      "default": 24
+    },
+    "zoneRadius": {
+      "type": "float",
+      "default": 80
+    },
+    "createdByRole": {
+      "type": "string",
+      "default": "admin"
+    }
+  }
+}

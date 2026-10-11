@@ -1,7 +1,7 @@
 /**
- * Backend URLs from env (see .env / .env.production).
- * Local dev: relative paths + Vite proxy (/cms, /api, /ws).
- * Production: full URLs in .env.production.
+ * Backend URLs from Vite env.
+ * Local: `.env` and `.env.development` (dev proxy /cms, /api, /ws).
+ * Vercel production: VITE_* from the project dashboard, not from env files.
  */
 
 const trimTrailingSlash = (value: string) => value.replace(/\/$/, '');

@@ -17,12 +17,6 @@ dist-ssr
 .env.local
 .env.*.local
 
-# Local database
-server/data/
-*.db
-*.db-shm
-*.db-wal
-
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

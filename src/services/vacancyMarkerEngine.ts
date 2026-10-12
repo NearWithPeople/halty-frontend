@@ -45,6 +45,7 @@ interface ClusterGroup {
 export class VacancyMarkerEngine {
   private map: mapboxgl.Map;
   private markers: Map<string, MarkerItem> = new Map();
+  private hasSynced = false;
   private onSelectVacancy: (vac: Vacancy) => void;
   private selectedVacancyId: string | null = null;
   private isDestroyed = false;
@@ -99,14 +100,15 @@ export class VacancyMarkerEngine {
       }
     });
 
-    // Add new markers
+    // Add new markers. Markers after the first sync pop in, so a live vacancy is visible.
     vacancies.forEach((vac) => {
       if (!this.markers.has(vac.id)) {
-        const markerItem = this.createMarkerItem(vac);
+        const markerItem = this.createMarkerItem(vac, this.hasSynced);
         this.markers.set(vac.id, markerItem);
       }
     });
 
+    this.hasSynced = true;
     this.requestTick();
   }
 
@@ -426,10 +428,10 @@ export class VacancyMarkerEngine {
     }
   }
 
-  private createMarkerItem(vac: Vacancy): MarkerItem {
+  private createMarkerItem(vac: Vacancy, popIn: boolean): MarkerItem {
     // 0x0 root element: Mapbox translates (0,0) exactly to geo coordinates
     const rootEl = document.createElement('div');
-    rootEl.className = 'vac-marker-root vac-mode-circle';
+    rootEl.className = popIn ? 'vac-marker-root vac-mode-circle vac-marker-pop' : 'vac-marker-root vac-mode-circle';
     rootEl.setAttribute('data-id', vac.id);
 
     // Inner container for seamless transitions and scaling

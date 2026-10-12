@@ -4,7 +4,6 @@ import { MINSK_VACANCIES } from '../data/minskVacancies';
 import { INITIAL_APPLICATIONS } from '../data/initialApplications';
 import type { ApplicationItem, ChatMessage } from '../models/application';
 import { apiClient } from './apiClient';
-import { backendConfig } from '../config/backend';
 
 /* ─── Default Pre-configured Accounts ───────────────────────────── */
 export const DEFAULT_ACCOUNTS: Record<UserRole, UserAccount> = {
@@ -60,21 +59,26 @@ const STORAGE_KEYS = {
 };
 
 type Listener = () => void;
+type LiveVacancyListener = (vacancy: Vacancy) => void;
 
 class DatabaseStore {
   private listeners: Set<Listener> = new Set();
+  private liveVacancyListeners: Set<LiveVacancyListener> = new Set();
   private currentUser: UserAccount;
   private isAuth: boolean;
   private vacancies: Vacancy[] = [];
   private applications: ApplicationItem[] = [];
   private favorites: Set<string> = new Set();
+  private hasSyncedVacancies = false;
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     // 1. Load User & Auth from LocalStorage
     const savedUser = localStorage.getItem(STORAGE_KEYS.USER);
     const savedAuth = localStorage.getItem(STORAGE_KEYS.IS_AUTH);
 
-    this.isAuth = savedAuth !== null ? JSON.parse(savedAuth) : true;
+    const savedSession = savedAuth !== null ? JSON.parse(savedAuth) === true : false;
+    this.isAuth = savedSession && apiClient.hasToken();
     this.currentUser = savedUser ? JSON.parse(savedUser) : DEFAULT_ACCOUNTS.user;
 
     // 2. Load Vacancies from LocalStorage or seed
@@ -117,12 +121,7 @@ class DatabaseStore {
 
     // 5. Realtime listeners + optional sync (Node server on :3001)
     this.setupRealtimeListeners();
-    if (this.isAuth && backendConfig.enableNodeWs) {
-      apiClient.connectWebSocket();
-    }
-    if (backendConfig.enableNodeWs || backendConfig.useStrapiApi) {
-      this.syncWithBackend();
-    }
+    this.startApiSync();
   }
 
   private seedVacancies(): Vacancy[] {
@@ -151,6 +150,28 @@ class DatabaseStore {
     return () => this.listeners.delete(listener);
   }
 
+  public subscribeLiveVacancy(listener: LiveVacancyListener): () => void {
+    this.liveVacancyListeners.add(listener);
+    return () => this.liveVacancyListeners.delete(listener);
+  }
+
+  private isPublicVacancy(vacancy?: Vacancy): boolean {
+    if (!vacancy) return false;
+    return (vacancy.moderationStatus ?? 'published') === 'published';
+  }
+
+  private upsertLiveVacancy(vacancy: Vacancy) {
+    const prev = this.vacancies.find((item) => item.id === vacancy.id);
+    const justPublished = this.hasSyncedVacancies && this.isPublicVacancy(vacancy) && !this.isPublicVacancy(prev);
+    this.vacancies = prev
+      ? this.vacancies.map((item) => (item.id === vacancy.id ? vacancy : item))
+      : [vacancy, ...this.vacancies];
+    this.persist();
+    if (justPublished && vacancy.createdByUserId !== this.currentUser.id) {
+      this.liveVacancyListeners.forEach((listener) => listener(vacancy));
+    }
+  }
+
   private notify() {
     this.listeners.forEach((l) => l());
   }
@@ -159,16 +180,17 @@ class DatabaseStore {
   private setupRealtimeListeners() {
     // Vacancy created by admin
     apiClient.on('VACANCY_CREATED', (newVac: Vacancy) => {
-      if (!this.vacancies.some((v) => v.id === newVac.id)) {
-        this.vacancies = [newVac, ...this.vacancies];
-        this.persist();
-      }
+      this.upsertLiveVacancy(newVac);
     });
 
     // Vacancy deleted
     apiClient.on('VACANCY_DELETED', ({ id }: { id: string }) => {
       this.vacancies = this.vacancies.filter((v) => v.id !== id);
       this.persist();
+    });
+
+    apiClient.on('VACANCY_UPDATED', (vacancy: Vacancy) => {
+      this.upsertLiveVacancy(vacancy);
     });
 
     // Application created
@@ -221,18 +243,43 @@ class DatabaseStore {
   }
 
   /* ─── Backend Synchronization ──────────────────────────────────── */
+  private startApiSync() {
+    void this.syncWithBackend();
+    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.pollTimer = setInterval(() => {
+      void this.syncWithBackend();
+    }, 4000);
+  }
+
+  private mergeApplications(incoming: ApplicationItem[]) {
+    const localById = new Map(this.applications.map((app) => [app.id, app]));
+    const merged = incoming.map((app) => {
+      const local = localById.get(app.id);
+      if (!local) return app;
+      const ids = new Set(app.messages.map((message) => message.id));
+      const extra = local.messages.filter((message) => message.id.startsWith('msg-') && !ids.has(message.id));
+      return extra.length > 0 ? { ...app, messages: [...app.messages, ...extra] } : app;
+    });
+    const incomingIds = new Set(merged.map((app) => app.id));
+    const pendingLocal = this.applications.filter(
+      (app) => app.id.startsWith('app::') && !incomingIds.has(app.id) && !incoming.some((item) => item.vacancyId && app.vacancyId === item.vacancyId)
+    );
+    this.applications = [...merged, ...pendingLocal];
+  }
+
   private async syncWithBackend() {
     try {
-      // 1. Fetch live vacancies from SQLite
       const liveVacancies = await apiClient.getVacancies();
-      if (liveVacancies && liveVacancies.length > 0) {
-        this.vacancies = liveVacancies;
+      if (liveVacancies) {
+        for (const vacancy of liveVacancies) this.upsertLiveVacancy(vacancy);
+        const ids = new Set(liveVacancies.map((vacancy) => vacancy.id));
+        this.vacancies = this.vacancies.filter((vacancy) => ids.has(vacancy.id) || vacancy.id.startsWith('vac-custom-'));
+        this.hasSyncedVacancies = true;
       }
 
-      // 2. Fetch live applications from SQLite
-      const liveApps = await apiClient.getApplications();
-      if (liveApps && liveApps.length > 0) {
-        this.applications = liveApps;
+      if (this.isAuth && apiClient.hasToken()) {
+        const liveApps = await apiClient.getApplications();
+        if (liveApps) this.mergeApplications(liveApps);
       }
 
       this.persist();
@@ -250,16 +297,37 @@ class DatabaseStore {
     return this.isAuth;
   }
 
+  private enterSession(user: UserAccount) {
+    this.currentUser = user;
+    this.isAuth = true;
+    this.persist();
+    void this.syncWithBackend();
+  }
+
+  public async loginWithPassword(email: string, password: string): Promise<UserAccount | null> {
+    const user = await apiClient.login(email, password);
+    if (!user) return null;
+    this.enterSession(user);
+    return user;
+  }
+
+  public async registerAccount(payload: {
+    name: string;
+    email: string;
+    password: string;
+    phone: string;
+    role: 'user' | 'employer';
+    companyName?: string;
+  }): Promise<{ user: UserAccount | null; error?: string }> {
+    const result = await apiClient.register(payload);
+    if (result.user) this.enterSession(result.user);
+    return result;
+  }
+
   public login(role: UserRole = 'user') {
     this.currentUser = DEFAULT_ACCOUNTS[role];
     this.isAuth = true;
     this.persist();
-    if (backendConfig.enableNodeWs) {
-      apiClient.connectWebSocket();
-    }
-    if (backendConfig.enableNodeWs || backendConfig.useStrapiApi) {
-      void this.syncWithBackend();
-    }
   }
 
   public switchRole(role: UserRole) {
@@ -276,7 +344,9 @@ class DatabaseStore {
 
   public logout() {
     this.isAuth = false;
+    apiClient.setToken(null);
     apiClient.disconnectWebSocket();
+    void this.syncWithBackend();
     this.persist();
   }
 
@@ -339,6 +409,7 @@ class DatabaseStore {
       createdAt: Date.now(),
       createdByRole: this.currentUser.role === 'employer' ? 'employer' : 'admin',
       createdByUserId: this.currentUser.id,
+      moderationStatus: this.currentUser.role === 'admin' ? 'published' : 'pending',
     };
 
     // Optimistic update
@@ -346,18 +417,30 @@ class DatabaseStore {
     this.persist();
 
     // Persist to live backend SQLite
-    apiClient.createVacancy(newVac);
+    void apiClient.createVacancy(newVac).then((saved) => {
+      if (!saved) return;
+      this.vacancies = this.vacancies.map((v) => (v.id === newVac.id || v.id === saved.id ? saved : v));
+      if (!this.vacancies.some((v) => v.id === saved.id)) {
+        this.vacancies = [saved, ...this.vacancies];
+      }
+      this.persist();
+    });
 
     return newVac;
   }
 
+  public moderateVacancy(id: string, status: 'published' | 'rejected') {
+    this.vacancies = this.vacancies.map((v) => (v.id === id ? { ...v, moderationStatus: status } : v));
+    this.persist();
+    void apiClient.moderateVacancy(id, status);
+  }
+
   public canDeleteVacancy(vacancy: Vacancy): boolean {
     if (!isEmployerSide(this.currentUser.role)) return false;
-    if (!vacancy.id.startsWith('vac-custom-')) return false;
-
     if (vacancy.createdByUserId) {
       return vacancy.createdByUserId === this.currentUser.id;
     }
+    if (!vacancy.id.startsWith('vac-custom-')) return false;
 
     // Старые смены в localStorage без createdByUserId
     if (this.currentUser.role === 'admin') {
@@ -388,14 +471,15 @@ class DatabaseStore {
     return this.applications;
   }
 
-  public applyToVacancy(vacancy: Vacancy, applicant: UserAccount = this.currentUser): ApplicationItem {
+  public async applyToVacancy(vacancy: Vacancy, applicant: UserAccount = this.currentUser): Promise<ApplicationItem> {
     const existing = this.applications.find(
-      (a) => a.id === `app-vac-${vacancy.id}` || a.role.toLowerCase() === vacancy.title.toLowerCase()
+      (a) => a.id === `app::${applicant.id}::${vacancy.id}`
     );
     if (existing) return existing;
 
     const newApp: ApplicationItem = {
-      id: `app-vac-${vacancy.id}`,
+      id: `app::${applicant.id}::${vacancy.id}`,
+      vacancyId: vacancy.id,
       role: vacancy.title,
       company: `${vacancy.company} (АДМИН)`,
       status: 'pending',
@@ -426,8 +510,12 @@ class DatabaseStore {
     this.applications = [newApp, ...this.applications];
     this.persist();
 
-    // Send to backend SQLite & notify telegram
-    apiClient.createApplication(vacancy);
+    const saved = await apiClient.createApplication(vacancy);
+    if (saved) {
+      this.applications = this.applications.map((app) => (app.id === newApp.id ? { ...saved, vacancyId: saved.vacancyId ?? vacancy.id } : app));
+      this.persist();
+      return this.applications.find((app) => app.id === saved.id) ?? saved;
+    }
 
     return newApp;
   }
@@ -576,46 +664,8 @@ class DatabaseStore {
     this.persist();
 
     // Send to backend SQLite & trigger Telegram notification
-    const senderRole = from === 'employer' ? 'admin' : 'user';
-    const senderName = from === 'employer' ? 'Администратор Halty' : this.currentUser.name;
-    apiClient.sendChatMessage(appId, trimmed, senderRole, senderName);
-
-    // If sent by user, simulate an intelligent response from Admin/Employer after short delay
-    if (from === 'user') {
-      setTimeout(() => {
-        const currentApp = this.applications.find((a) => a.id === appId);
-        if (!currentApp) return;
-
-        const replies = [
-          `Здравствуйте! АДМИНИСТРАТОР на связи. Мы зафиксировали ваш вопрос по смене «${currentApp.role}».`,
-          `Добрый день! Координатор смены проверил ваши данные. Выходите по графику к назначенному времени.`,
-          `Принято! По адресу ${currentApp.location} вас встретит дежурный администратор.`,
-          `Спасибо за уточнение! Если возникнут сложности по дороге, звоните в поддержку.`,
-        ];
-        const randomReply = replies[Math.floor(Math.random() * replies.length)];
-
-        const replyMsg: ChatMessage = {
-          id: `msg-${Date.now()}-adm`,
-          text: randomReply,
-          from: 'employer',
-          time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }),
-        };
-
-        this.applications = this.applications.map((a) => {
-          if (a.id === appId) {
-            return {
-              ...a,
-              messages: [...a.messages, replyMsg],
-            };
-          }
-          return a;
-        });
-        this.persist();
-
-        // Also persist the admin reply to backend SQLite
-        apiClient.sendChatMessage(appId, randomReply, 'admin', 'Координатор Halty (АДМИН)');
-      }, 900);
-    }
+    const senderRole = this.currentUser.role === 'user' ? 'user' : this.currentUser.role === 'employer' ? 'employer' : 'admin';
+    apiClient.sendChatMessage(appId, trimmed, senderRole, this.currentUser.name, newMsg.id);
   }
 
   /* ─── Telegram Methods ─────────────────────────────────────────── */

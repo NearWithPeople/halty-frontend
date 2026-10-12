@@ -27,59 +27,59 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
   const [authRole, setAuthRole] = useState<UserRole>('user');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
+  const [authName, setAuthName] = useState('');
+  const [authPhone, setAuthPhone] = useState('');
+  const [authCompany, setAuthCompany] = useState('');
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('register');
+  const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('all');
 
-  const handleOpenAuth = (role: UserRole = 'user') => {
+  const handleOpenAuth = (role: 'user' | 'employer' = 'user', mode: 'login' | 'register' = 'register') => {
     setAuthRole(role);
+    setAuthMode(mode);
     setAuthError('');
-    if (role === 'user') {
-      setAuthEmail('egor.makarov@gmail.com');
-      setAuthPassword('user123');
-    } else if (role === 'employer') {
-      setAuthEmail('employer@halty.by');
-      setAuthPassword('employer2026');
-    } else {
-      setAuthEmail('admin@halty.by');
-      setAuthPassword('admin2026');
-    }
+    setAuthEmail('');
+    setAuthPassword('');
     setIsAuthModalOpen(true);
   };
 
-  const handleQuickLogin = (role: UserRole) => {
-    dbStore.login(role);
+  const finishAuth = (role: UserRole) => {
+    setIsAuthModalOpen(false);
+    setAuthLoading(false);
     onEnterApp(role);
   };
 
-  const handleSubmitAuth = (e: React.FormEvent) => {
+  const handleSubmitAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
-    // Check credentials
-    if (authRole === 'user') {
-      if (authEmail.trim() === 'egor.makarov@gmail.com' || authEmail.includes('@')) {
-        dbStore.login('user');
-        setIsAuthModalOpen(false);
-        onEnterApp('user');
-      } else {
-        setAuthError('Неверный email или пароль для исполнителя.');
+    setAuthLoading(true);
+
+    if (authMode === 'register') {
+      const result = await dbStore.registerAccount({
+        name: authName,
+        email: authEmail,
+        password: authPassword,
+        phone: authPhone,
+        role: authRole === 'employer' ? 'employer' : 'user',
+        companyName: authCompany,
+      });
+      if (!result.user) {
+        setAuthLoading(false);
+        setAuthError(result.error || 'Не удалось зарегистрироваться');
+        return;
       }
-    } else if (authRole === 'employer') {
-      if (authEmail.trim() === 'employer@halty.by' && authPassword.trim() === 'employer2026') {
-        dbStore.login('employer');
-        setIsAuthModalOpen(false);
-        onEnterApp('employer');
-      } else {
-        setAuthError('Неверный пароль работодателя (по умолчанию: employer2026).');
-      }
-    } else {
-      if (authEmail.trim() === 'admin@halty.by' && authPassword.trim() === 'admin2026') {
-        dbStore.login('admin');
-        setIsAuthModalOpen(false);
-        onEnterApp('admin');
-      } else {
-        setAuthError('Неверный пароль администратора (по умолчанию: admin2026).');
-      }
+      finishAuth(result.user.role);
+      return;
     }
+
+    const user = await dbStore.loginWithPassword(authEmail, authPassword);
+    if (!user) {
+      setAuthLoading(false);
+      setAuthError('Неверный email или пароль');
+      return;
+    }
+    finishAuth(user.role);
   };
 
   // Real shift cards showcasing actual Minsk vacancies
@@ -190,7 +190,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
 
           <div className="flex items-center gap-3">
             <button
-              onClick={() => handleOpenAuth('user')}
+              onClick={() => handleOpenAuth('user', 'login')}
               className="px-3.5 py-1.5 text-sm font-medium text-slate-200 hover:text-white transition-colors rounded-lg hover:bg-slate-800"
             >
               Вход
@@ -203,10 +203,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
               Для работодателей
             </button>
             <button
-              onClick={() => handleQuickLogin('user')}
+              onClick={() => handleOpenAuth('user')}
               className="px-4 py-2 text-sm font-semibold text-black bg-emerald-400 hover:bg-emerald-300 rounded-xl transition-all shadow-md shadow-emerald-500/20 flex items-center gap-2"
             >
-              Открыть карту
+              Регистрация
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
@@ -240,7 +240,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
               <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-xl">
                 {/* Worker demo */}
                 <div 
-                  onClick={() => handleQuickLogin('user')}
+                  onClick={() => handleOpenAuth('user')}
                   className="p-4 rounded-2xl bg-slate-800/60 border border-slate-700/80 hover:border-emerald-500/60 transition-all cursor-pointer group hover:bg-slate-800/90 shadow-sm"
                 >
                   <div className="flex items-center justify-between mb-2">
@@ -248,7 +248,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
                     <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 transition-transform" />
                   </div>
                   <div className="font-semibold text-white group-hover:text-emerald-300 text-base">
-                    Войти как Егор Макаров
+                    Зарегистрироваться
                   </div>
                   <p className="text-xs text-slate-400 mt-1">
                     Смотреть вакансии рядом, статус откликов и Telegram-уведомления
@@ -257,7 +257,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
 
                 {/* Employer demo */}
                 <div 
-                  onClick={() => handleQuickLogin('employer')}
+                  onClick={() => handleOpenAuth('employer')}
                   className="p-4 rounded-2xl bg-slate-800/60 border border-slate-700/80 hover:border-amber-500/60 transition-all cursor-pointer group hover:bg-slate-800/90 shadow-sm"
                 >
                   <div className="flex items-center justify-between mb-2">
@@ -265,7 +265,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
                     <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-1 transition-transform" />
                   </div>
                   <div className="font-semibold text-white group-hover:text-amber-300 text-base">
-                    Войти как Ирина (HR)
+                    Зарегистрировать компанию
                   </div>
                   <p className="text-xs text-slate-400 mt-1">
                     Создание смен, отбор соискателей, согласование выплат
@@ -357,7 +357,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
 
                 <div className="mt-5">
                   <button
-                    onClick={() => handleQuickLogin('user')}
+                    onClick={() => handleOpenAuth('user')}
                     className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold text-sm transition-colors flex items-center justify-center gap-2 border border-slate-700"
                   >
                     <span>Открыть интерактивную карту Минска</span>
@@ -473,7 +473,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
                   </div>
 
                   <button
-                    onClick={() => handleQuickLogin('user')}
+                    onClick={() => handleOpenAuth('user')}
                     className="px-3.5 py-2 text-xs font-semibold text-white bg-slate-800 hover:bg-emerald-500 hover:text-black rounded-xl transition-all flex items-center gap-1.5"
                   >
                     Откликнуться
@@ -567,7 +567,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
 
                 <div className="mt-8 flex flex-wrap gap-4">
                   <button
-                    onClick={() => handleQuickLogin('user')}
+                    onClick={() => handleOpenAuth('user')}
                     className="px-5 py-3 rounded-xl bg-sky-500 hover:bg-sky-400 text-black font-semibold text-sm transition-all flex items-center gap-2 shadow-lg shadow-sky-500/20"
                   >
                     <Send className="w-4 h-4" />
@@ -690,20 +690,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
             </button>
 
             <div className="mb-6">
-              <h3 className="text-xl font-bold text-white">Вход в аккаунт Халти</h3>
+              <h3 className="text-xl font-bold text-white">
+                {authMode === 'register' ? 'Регистрация в Халти' : 'Вход в аккаунт Халти'}
+              </h3>
               <p className="text-xs text-slate-400 mt-1">
-                Выберите вашу роль для входа в панель
+                {authMode === 'register'
+                  ? 'Исполнитель ищет смены, работодатель публикует их'
+                  : 'Введите email и пароль, указанные при регистрации'}
               </p>
             </div>
 
-            {/* Role switch tabs */}
-            <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-slate-800/80 mb-6">
+            {authMode === 'register' && (
+            <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-slate-800/80 mb-6">
               <button
                 type="button"
                 onClick={() => {
                   setAuthRole('user');
-                  setAuthEmail('egor.makarov@gmail.com');
-                  setAuthPassword('user123');
                   setAuthError('');
                 }}
                 className={`py-2 text-[11px] font-semibold rounded-lg transition-all ${
@@ -718,8 +720,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
                 type="button"
                 onClick={() => {
                   setAuthRole('employer');
-                  setAuthEmail('employer@halty.by');
-                  setAuthPassword('employer2026');
                   setAuthError('');
                 }}
                 className={`py-2 text-[11px] font-semibold rounded-lg transition-all ${
@@ -730,23 +730,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
               >
                 Работодатель
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthRole('admin');
-                  setAuthEmail('admin@halty.by');
-                  setAuthPassword('admin2026');
-                  setAuthError('');
-                }}
-                className={`py-2 text-[11px] font-semibold rounded-lg transition-all ${
-                  authRole === 'admin'
-                    ? 'bg-purple-500 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Админ
-              </button>
             </div>
+            )}
 
             {authError && (
               <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center gap-2">
@@ -756,6 +741,40 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
             )}
 
             <form onSubmit={handleSubmitAuth} className="space-y-4">
+              {authMode === 'register' && (
+                <>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">Имя</label>
+                    <input
+                      required
+                      value={authName}
+                      onChange={(e) => setAuthName(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-sm focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">Телефон</label>
+                    <input
+                      required
+                      value={authPhone}
+                      onChange={(e) => setAuthPhone(e.target.value)}
+                      placeholder="+375 ..."
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-sm focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  {authRole === 'employer' && (
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300 mb-1.5">Компания</label>
+                      <input
+                        required
+                        value={authCompany}
+                        onChange={(e) => setAuthCompany(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800/80 border border-slate-700 text-white text-sm focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                  )}
+                </>
+              )}
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1.5">
                   Email
@@ -787,15 +806,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
                   type="submit"
                   className="w-full py-3 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-black font-bold text-sm transition-all shadow-md shadow-emerald-500/20"
                 >
-                  Войти в систему
+                  {authLoading ? 'Подождите…' : authMode === 'register' ? 'Создать аккаунт' : 'Войти в систему'}
                 </button>
               </div>
             </form>
 
             <div className="mt-4 pt-4 border-t border-slate-800 text-center">
-              <span className="text-xs text-slate-400">
-                Быстрый вход: нажмите на тестовые аккаунты на главной странице
-              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode(authMode === 'login' ? 'register' : 'login');
+                  setAuthError('');
+                  setAuthEmail('');
+                  setAuthPassword('');
+                  if (authRole === 'admin') setAuthRole('user');
+                }}
+                className="text-xs text-emerald-300 hover:text-emerald-200"
+              >
+                {authMode === 'login' ? 'Нет аккаунта? Зарегистрироваться' : 'Уже есть аккаунт? Войти'}
+              </button>
             </div>
           </div>
         </div>

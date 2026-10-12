@@ -56,6 +56,7 @@ export function App() {
   const [applications, setApplications] = useState<ApplicationItem[]>(() => dbStore.getApplications());
   const [isCreateVacancyOpen, setIsCreateVacancyOpen] = useState(false);
   const [isAdminMembersOpen, setIsAdminMembersOpen] = useState(false);
+  const [isModerationOpen, setIsModerationOpen] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
 
   const employerSide = isEmployerSide(currentUser.role);
@@ -67,6 +68,15 @@ export function App() {
       setIsAuth(dbStore.isAuthenticated());
       setAllVacancies(dbStore.getVacancies());
       setApplications(dbStore.getApplications());
+    });
+  }, []);
+
+  useEffect(() => {
+    return dbStore.subscribeLiveVacancy((vacancy) => {
+      setLiveVacancy(vacancy);
+      window.setTimeout(() => {
+        setLiveVacancy((current) => (current?.id === vacancy.id ? null : current));
+      }, 7000);
     });
   }, []);
 
@@ -93,6 +103,7 @@ export function App() {
   // Applications interactive state
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [liveVacancy, setLiveVacancy] = useState<Vacancy | null>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -101,10 +112,11 @@ export function App() {
     }, 4000);
   };
 
-  const handleApplyToVacancy = (vacancy: Vacancy) => {
-    const existing = applications.find(
-      (a) => a.id === `app-vac-${vacancy.id}` || a.role.toLowerCase() === vacancy.title.toLowerCase()
-    );
+  const matchesVacancy = (app: { id: string; vacancyId?: string }, vacancyId: string) =>
+    app.vacancyId === vacancyId || app.id === `app::${currentUser.id}::${vacancyId}`;
+
+  const handleApplyToVacancy = async (vacancy: Vacancy) => {
+    const existing = applications.find((app) => matchesVacancy(app, vacancy.id));
     if (existing) {
       setSelectedAppId(existing.id);
       setActiveTab('applications');
@@ -113,7 +125,7 @@ export function App() {
       return;
     }
 
-    const newApp = dbStore.applyToVacancy(vacancy);
+    const newApp = await dbStore.applyToVacancy(vacancy);
     setSelectedAppId(newApp.id);
     setSelectedVacancy(null);
     setActiveTab('applications');
@@ -141,7 +153,12 @@ export function App() {
 
   const mapInstanceRef = useRef<mapboxgl.Map | null>(null);
 
-  const categoryFiltered = allVacancies;
+  const categoryFiltered = allVacancies.filter((vacancy) => {
+    const status = vacancy.moderationStatus ?? 'published';
+    if (status === 'published') return true;
+    return currentUser.role === 'employer' && vacancy.createdByUserId === currentUser.id && status === 'pending';
+  });
+  const pendingVacancies = allVacancies.filter((vacancy) => vacancy.moderationStatus === 'pending');
 
   const filteredVacancies = drawnPolygon
     ? categoryFiltered.filter((v) =>
@@ -177,23 +194,70 @@ export function App() {
 
   const handleMapLoaded = (map: mapboxgl.Map) => {
     mapInstanceRef.current = map;
+    const coords = userCoordsRef.current;
+    if (coords) {
+      map.flyTo({ center: [coords.lng, coords.lat], zoom: 15.5, pitch: 55, duration: 1200 });
+    }
   };
+
+  useEffect(() => {
+    if (!isAuth) return;
+    handleGeolocate();
+    // Ask once after login. The button calls the same handler again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuth]);
 
   const handleZoomIn = () => mapInstanceRef.current?.zoomIn({ duration: 300 });
   const handleZoomOut = () => mapInstanceRef.current?.zoomOut({ duration: 300 });
 
+  const userCoordsRef = useRef<Coordinates | null>(null);
+
+  const applyUserCoords = async (coords: Coordinates) => {
+    userCoordsRef.current = coords;
+    setUserCoords(coords);
+    mapInstanceRef.current?.flyTo({
+      center: [coords.lng, coords.lat],
+      zoom: 15.5,
+      pitch: 55,
+      duration: 1500,
+    });
+    const geo = await reverseGeocode(coords, token);
+    if (geo?.title) setStreetName(geo.title);
+  };
+
   const handleGeolocate = () => {
-    if (!navigator.geolocation) return;
+    if (!navigator.geolocation) {
+      showToast('Браузер не отдаёт геолокацию');
+      return;
+    }
+    if (!window.isSecureContext) {
+      showToast('Гео работает только на https или localhost');
+      return;
+    }
+
+    showToast('Определяем, где вы…');
+
+    const coarse: PositionOptions = { enableHighAccuracy: false, timeout: 12000, maximumAge: 60_000 };
+    const precise: PositionOptions = { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 };
+
     navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const coords: Coordinates = { lng: pos.coords.longitude, lat: pos.coords.latitude };
-        setUserCoords(coords);
-        mapInstanceRef.current?.flyTo({ center: [coords.lng, coords.lat], zoom: 15.5, pitch: 55, duration: 1500 });
-        const geo = await reverseGeocode(coords, token);
-        if (geo?.title) setStreetName(geo.title);
+      (pos) => {
+        void applyUserCoords({ lng: pos.coords.longitude, lat: pos.coords.latitude });
       },
-      () => alert('Не удалось получить координаты: разрешите доступ к геопозиции'),
-      { enableHighAccuracy: true, timeout: 8000 }
+      (error) => {
+        if (error.code !== error.TIMEOUT && error.code !== error.POSITION_UNAVAILABLE) {
+          showToast('Разрешите доступ к геопозиции в браузере');
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            void applyUserCoords({ lng: pos.coords.longitude, lat: pos.coords.latitude });
+          },
+          () => showToast('Не удалось определить место. Разрешите геопозицию и повторите'),
+          precise
+        );
+      },
+      coarse
     );
   };
 
@@ -303,7 +367,6 @@ export function App() {
     return (
       <LandingPage
         onEnterApp={(role) => {
-          dbStore.login(role);
           setIsAuth(true);
           showToast(
             role === 'admin'
@@ -378,9 +441,41 @@ export function App() {
         />
       </div>
 
+      {liveVacancy && (
+        <button
+          type="button"
+          onClick={() => {
+            setSelectedVacancy(liveVacancy);
+            setLiveVacancy(null);
+            mapInstanceRef.current?.flyTo({
+              center: [liveVacancy.coordinates.lng, liveVacancy.coordinates.lat],
+              zoom: 15.5,
+              duration: 900,
+            });
+          }}
+          className="live-vacancy-pop absolute top-24 left-1/2 z-40 w-[min(92vw,380px)] -translate-x-1/2 cursor-pointer rounded-3xl border border-emerald-300/80 bg-white px-4 py-3 text-left shadow-2xl dark:border-emerald-500/40 dark:bg-slate-900"
+        >
+          <div className="text-[10px] font-black uppercase tracking-wider text-emerald-600">Новая смена на карте</div>
+          <div className="mt-1 text-sm font-black text-slate-900 dark:text-white">{liveVacancy.title}</div>
+          <div className="mt-0.5 text-xs text-slate-500">
+            {liveVacancy.company} · {liveVacancy.salary} · {liveVacancy.locationName}
+          </div>
+        </button>
+      )}
+
       {/* Top-right: Controls (Admin create button, Profile button) */}
       <div className="absolute top-5 right-5 z-20 pointer-events-auto flex items-center gap-2.5">
         {/* Admin Create Vacancy Button */}
+        {platformAdmin && (
+          <button
+            onClick={() => setIsModerationOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-amber-500 hover:bg-amber-400 text-black border border-amber-300 text-xs font-black tracking-wide transition-all active:scale-95 cursor-pointer shadow-lg"
+            title="Смены на одобрении"
+          >
+            <span className="hidden sm:inline">Модерация</span>
+            <span>{pendingVacancies.length}</span>
+          </button>
+        )}
         {platformAdmin && (
           <button
             onClick={() => setIsAdminMembersOpen(true)}
@@ -572,9 +667,66 @@ export function App() {
               duration: 1200,
             });
           }
-          showToast('✓ Вакансия успешно опубликована!');
+          showToast(
+            newVac.moderationStatus === 'pending'
+              ? 'Смена отправлена админу на одобрение'
+              : '✓ Вакансия опубликована на карте'
+          );
         }}
       />
+
+      {isModerationOpen && platformAdmin && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50">
+          <div className="w-full max-w-lg max-h-[80vh] overflow-y-auto rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-5 shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-black text-slate-900 dark:text-white">Смены на одобрении</h2>
+              <button
+                type="button"
+                onClick={() => setIsModerationOpen(false)}
+                className="text-sm font-bold text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+              >
+                Закрыть
+              </button>
+            </div>
+            {pendingVacancies.length === 0 ? (
+              <p className="text-sm text-slate-500">Новых смен от работодателей нет.</p>
+            ) : (
+              <div className="space-y-3">
+                {pendingVacancies.map((vacancy) => (
+                  <div key={vacancy.id} className="rounded-2xl border border-slate-200 dark:border-slate-700 p-3">
+                    <div className="text-sm font-bold text-slate-900 dark:text-white">{vacancy.title}</div>
+                    <div className="text-xs text-slate-500 mt-1">
+                      {vacancy.company} · {vacancy.salary} · {vacancy.locationName}
+                    </div>
+                    <div className="flex gap-2 mt-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          dbStore.moderateVacancy(vacancy.id, 'published');
+                          showToast(`«${vacancy.title}» опубликована на карте`);
+                        }}
+                        className="px-3 py-1.5 rounded-full bg-emerald-500 text-black text-xs font-bold cursor-pointer"
+                      >
+                        Одобрить
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          dbStore.moderateVacancy(vacancy.id, 'rejected');
+                          showToast(`«${vacancy.title}» отклонена`);
+                        }}
+                        className="px-3 py-1.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold cursor-pointer"
+                      >
+                        Отклонить
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Vacancy detail card with live apply & view application status */}
       {selectedVacancy && (
@@ -582,13 +734,9 @@ export function App() {
           vacancy={selectedVacancy}
           onClose={() => setSelectedVacancy(null)}
           onApply={handleApplyToVacancy}
-          isApplied={applications.some(
-            (a) => a.id === `app-vac-${selectedVacancy.id}` || a.role.toLowerCase() === selectedVacancy.title.toLowerCase()
-          )}
+          isApplied={applications.some((a) => matchesVacancy(a, selectedVacancy.id))}
           onViewApplication={() => {
-            const match = applications.find(
-              (a) => a.id === `app-vac-${selectedVacancy.id}` || a.role.toLowerCase() === selectedVacancy.title.toLowerCase()
-            );
+            const match = applications.find((a) => matchesVacancy(a, selectedVacancy.id));
             if (match) setSelectedAppId(match.id);
             setActiveTab('applications');
             setSelectedVacancy(null);

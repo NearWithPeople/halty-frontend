@@ -1,6 +1,6 @@
 /**
  * Backend URLs from Vite env.
- * Local: `.env` and `.env.development` (dev proxy /cms, /api, /ws).
+ * Local: `.env` and `.env.development` (dev proxy /cms and /api → Strapi).
  * Vercel production: VITE_* from the project dashboard, not from env files.
  */
 
@@ -24,7 +24,7 @@ export const backendConfig = {
   /** Strapi (halty-backend). Dev default: `/cms` → Vite proxy :1337 */
   strapiUrl: resolveUrl('VITE_STRAPI_URL', '/cms'),
 
-  /** Node API or BFF. Dev default: `/api` → Vite proxy :3001 */
+  /** Same Strapi REST API. Dev default: `/api` → Vite proxy :1337 */
   nodeApiBase: resolveUrl('VITE_API_BASE_URL', '/api'),
 
   /**
@@ -34,10 +34,9 @@ export const backendConfig = {
 
   wsPath: trimTrailingSlash(readEnv('VITE_WS_PATH') ?? '/ws'),
 
-  useStrapiApi: import.meta.env.VITE_USE_STRAPI === 'true',
+  useStrapiApi: import.meta.env.VITE_USE_STRAPI !== 'false',
 
-  /** Node WebSocket (port 3001). Off by default for `vite` only; enable for `npm run dev:all`. */
-  enableNodeWs: import.meta.env.VITE_ENABLE_NODE_WS === 'true',
+  enableNodeWs: false,
 
   isDev: import.meta.env.DEV,
   isProd: import.meta.env.PROD,

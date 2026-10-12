@@ -11,8 +11,30 @@ function resolveStrapiBaseUrl(override?: string): string {
   return String(raw).replace(/\/$/, '') || '/cms';
 }
 
+function relationId(value: unknown): string | undefined {
+  if (value && typeof value === 'object') {
+    const id = (value as { id?: number | string }).id;
+    return id != null ? String(id) : undefined;
+  }
+  if (typeof value === 'string' || typeof value === 'number') return String(value);
+  return undefined;
+}
+
+function vacancyDocumentId(item: Record<string, unknown>): string | undefined {
+  if (typeof item.vacancyId === 'string' && item.vacancyId) return item.vacancyId;
+  if (typeof item.vacancyDocumentId === 'string' && item.vacancyDocumentId) return item.vacancyDocumentId;
+  const vacancy = item.vacancy;
+  if (vacancy && typeof vacancy === 'object') {
+    const documentId = (vacancy as { documentId?: string }).documentId;
+    if (documentId) return String(documentId);
+  }
+  if (typeof vacancy === 'string') return vacancy;
+  return undefined;
+}
+
 function mapVacancy(item: Record<string, unknown>): Vacancy {
   const documentId = item.documentId ?? item.id;
+  const moderation = item.moderationStatus;
   return {
     id: String(documentId),
     title: String(item.title ?? ''),
@@ -40,7 +62,12 @@ function mapVacancy(item: Record<string, unknown>): Vacancy {
     buildingHeight: item.buildingHeight != null ? Number(item.buildingHeight) : undefined,
     zoneRadius: item.zoneRadius != null ? Number(item.zoneRadius) : undefined,
     createdAt: item.createdAt ? new Date(String(item.createdAt)).getTime() : Date.now(),
-    createdByRole: 'admin',
+    createdByRole: item.createdByRole === 'employer' ? 'employer' : 'admin',
+    createdByUserId: typeof item.createdByUserId === 'string' ? item.createdByUserId : relationId(item.owner),
+    moderationStatus:
+      moderation === 'pending' || moderation === 'published' || moderation === 'rejected'
+        ? moderation
+        : 'published',
   };
 }
 
@@ -56,6 +83,7 @@ function mapApplication(item: Record<string, unknown>): ApplicationItem {
 
   return {
     id: String(documentId),
+    vacancyId: vacancyDocumentId(item),
     role: String(item.role ?? 'Смена'),
     company: String(item.company ?? ''),
     location: String(item.location ?? ''),
@@ -160,7 +188,7 @@ export class StrapiClient {
     radius?: number;
     category?: string;
     search?: string;
-  }): Promise<Vacancy[]> {
+  }): Promise<Vacancy[] | null> {
     try {
       if (params?.lat != null && params?.lng != null && params?.radius != null) {
         const spatialUrl = this.apiUrl(
@@ -185,15 +213,20 @@ export class StrapiClient {
         query.set('filters[title][$containsi]', params.search);
       }
 
-      const res = await fetch(this.apiUrl(`/vacancies?${query.toString()}`), {
-        headers: this.getHeaders(false),
+      let res = await fetch(this.apiUrl(`/vacancies?${query.toString()}`), {
+        headers: this.getHeaders(true),
       });
+      if (res.status === 401) {
+        res = await fetch(this.apiUrl(`/vacancies?${query.toString()}`), {
+          headers: this.getHeaders(false),
+        });
+      }
       if (!res.ok) throw new Error(`Strapi HTTP ${res.status}`);
       const data = await res.json();
       return this.normalizeList(data).map(mapVacancy);
     } catch (e) {
       console.warn('[StrapiClient] getVacancies error:', e);
-      return [];
+      return null;
     }
   }
 
@@ -221,11 +254,12 @@ export class StrapiClient {
           iconType: vacancy.iconType,
           buildingHeight: vacancy.buildingHeight,
           zoneRadius: vacancy.zoneRadius,
-          createdByRole: 'admin',
+          createdByRole: vacancy.createdByRole === 'employer' ? 'employer' : 'admin',
+          moderationStatus: vacancy.moderationStatus,
         },
       };
 
-      const res = await fetch(this.apiUrl('/vacancies?status=published'), {
+      const res = await fetch(this.apiUrl('/vacancies'), {
         method: 'POST',
         headers: this.getHeaders(),
         body: JSON.stringify(payload),
@@ -252,17 +286,18 @@ export class StrapiClient {
     }
   }
 
-  public async getApplications(): Promise<ApplicationItem[]> {
+  public async getApplications(): Promise<ApplicationItem[] | null> {
     try {
       const res = await fetch(this.apiUrl('/applications?populate=*'), {
         headers: this.getHeaders(),
       });
-      if (!res.ok) throw new Error(`Strapi HTTP ${res.status}`);
+      if (res.status === 401 || res.status === 403) return [];
+      if (!res.ok) return null;
       const data = await res.json();
       return this.normalizeList(data).map(mapApplication);
     } catch (e) {
       console.warn('[StrapiClient] getApplications error:', e);
-      return [];
+      return null;
     }
   }
 
@@ -280,7 +315,7 @@ export class StrapiClient {
 
       if (res.status === 409) {
         const apps = await this.getApplications();
-        return apps.find((a) => a.role.toLowerCase() === vacancy.title.toLowerCase()) ?? null;
+        return apps?.find((a) => a.vacancyId === vacancy.id || a.role.toLowerCase() === vacancy.title.toLowerCase()) ?? null;
       }
 
       if (!res.ok) throw new Error(`Strapi HTTP ${res.status}`);
@@ -311,17 +346,34 @@ export class StrapiClient {
     }
   }
 
+  public async moderateVacancy(id: string, status: 'published' | 'rejected'): Promise<Vacancy | null> {
+    try {
+      const res = await fetch(this.apiUrl(`/vacancies/${id}/moderation`), {
+        method: 'PATCH',
+        headers: this.getHeaders(),
+        body: JSON.stringify({ status }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return mapVacancy(this.normalizeItem(data.data));
+    } catch (e) {
+      console.warn('[StrapiClient] moderateVacancy error:', e);
+      return null;
+    }
+  }
+
   public async sendChatMessage(
     applicationId: string,
     text: string,
-    senderRole: 'user' | 'admin',
-    senderName?: string
+    senderRole: 'user' | 'admin' | 'employer',
+    senderName?: string,
+    messageId?: string
   ): Promise<ChatMessage | null> {
     try {
       const res = await fetch(this.apiUrl(`/applications/${applicationId}/messages`), {
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify({ text, senderRole, senderName }),
+        body: JSON.stringify({ text, senderRole, senderName, id: messageId }),
       });
       if (!res.ok) throw new Error(`Strapi HTTP ${res.status}`);
       const data = await res.json();
@@ -336,6 +388,46 @@ export class StrapiClient {
     } catch (e) {
       console.warn('[StrapiClient] sendChatMessage error:', e);
       return null;
+    }
+  }
+
+  public async register(payload: {
+    name: string;
+    email: string;
+    password: string;
+    phone: string;
+    role: 'user' | 'employer';
+    companyName?: string;
+  }): Promise<{ user: UserAccount | null; error?: string }> {
+    try {
+      const localPart = payload.email.split('@')[0]?.replace(/[^a-zA-Z0-9]/g, '') || 'user';
+      const username = `${localPart}-${Date.now().toString(36)}`.slice(0, 40);
+      const res = await fetch(this.apiUrl('/auth/local/register'), {
+        method: 'POST',
+        headers: this.getHeaders(false),
+        body: JSON.stringify({
+          username,
+          email: payload.email,
+          password: payload.password,
+          displayName: payload.name,
+          phone: payload.phone,
+          accountRole: payload.role,
+          companyName: payload.companyName,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message = String(data?.error?.message ?? '');
+        if (message.toLowerCase().includes('already')) {
+          return { user: null, error: 'Такой email уже зарегистрирован' };
+        }
+        return { user: null, error: message || 'Не удалось зарегистрироваться' };
+      }
+      if (data.jwt) this.setToken(data.jwt);
+      return { user: data.user ? this.mapUser(data.user) : null };
+    } catch (e) {
+      console.warn('[StrapiClient] register error:', e);
+      return { user: null, error: 'Сервер недоступен. Запустите Strapi в папке бекенда' };
     }
   }
 
@@ -395,16 +487,24 @@ export class StrapiClient {
 
   private mapUser(user: Record<string, unknown>): UserAccount {
     const email = String(user.email ?? '');
-    const username = String(user.username ?? email);
+    const name = String(user.displayName ?? user.username ?? email);
+    const accountRole = user.accountRole;
+    const role: UserAccount['role'] =
+      accountRole === 'employer' || accountRole === 'admin' || accountRole === 'user'
+        ? accountRole
+        : email.toLowerCase().includes('admin')
+          ? 'admin'
+          : 'user';
     return {
       id: String(user.id ?? user.documentId ?? ''),
-      name: username,
+      name,
       email,
-      phone: String(user.phone ?? '+375 (29) 123-45-67'),
-      role: email.toLowerCase().includes('admin') ? 'admin' : 'user',
-      avatar: username.slice(0, 2).toUpperCase() || 'ХЛ',
+      phone: String(user.phone ?? ''),
+      role,
+      avatar: name.replace(/\s+/g, '').slice(0, 2).toUpperCase() || 'ХЛ',
+      companyName: user.companyName ? String(user.companyName) : undefined,
       rating: 5.0,
-      completedShifts: 10,
+      completedShifts: 0,
       punctuality: '100%',
       tgUsername: user.tgUsername ? String(user.tgUsername) : undefined,
       tgConnected: Boolean(user.tgConnected),

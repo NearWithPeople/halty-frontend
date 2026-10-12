@@ -12,6 +12,7 @@ export interface ChatMessage {
 
 export interface ApplicationItem {
   id: string;
+  vacancyId?: string;
   role: string;
   company: string;
   status: ResponseStatus;

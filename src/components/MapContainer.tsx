@@ -130,6 +130,8 @@ export const MapContainer: React.FC<MapContainerProps> = ({
   // Markers refs
   const selectedMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const userCoordsPropRef = useRef(userCoords);
+  userCoordsPropRef.current = userCoords;
 
   // Callbacks ref
   const callbacksRef = useRef({
@@ -182,6 +184,7 @@ export const MapContainer: React.FC<MapContainerProps> = ({
 
     map.on('load', () => {
       onMapLoaded(map);
+      placeUserMarker(map, userCoordsPropRef.current);
 
       // 1. Hidden building layer for footprint queries (no global 3D cityscape)
       updateDefault3DBuildings(map, is3DBuildings);
@@ -478,30 +481,32 @@ export const MapContainer: React.FC<MapContainerProps> = ({
     }
   }, [selectedPlace]);
 
-  // User location marker
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
+  const placeUserMarker = (map: mapboxgl.Map, coords: Coordinates | null) => {
     if (userMarkerRef.current) {
       userMarkerRef.current.remove();
       userMarkerRef.current = null;
     }
+    if (!coords) return;
 
-    if (userCoords) {
-      const el = document.createElement('div');
-      el.className = 'relative flex items-center justify-center';
-      el.innerHTML = `
-        <div class="absolute w-8 h-8 rounded-full bg-blue-500/30 animate-ping
-        <div class="w-4 h-4 rounded-full bg-blue-600 border-2 border-white shadow-lg"></div>
-      `;
+    const el = document.createElement('div');
+    el.style.position = 'relative';
+    el.style.width = '18px';
+    el.style.height = '18px';
+    el.innerHTML = `
+      <span style="position:absolute;inset:-8px;border-radius:9999px;background:rgba(37,99,235,0.28);"></span>
+      <span style="position:absolute;inset:0;border-radius:9999px;background:#2563eb;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.35);"></span>
+    `;
 
-      const marker = new mapboxgl.Marker({ element: el })
-        .setLngLat([userCoords.lng, userCoords.lat])
-        .addTo(map);
+    userMarkerRef.current = new mapboxgl.Marker({ element: el })
+      .setLngLat([coords.lng, coords.lat])
+      .addTo(map);
+  };
 
-      userMarkerRef.current = marker;
-    }
+  // User location marker
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    placeUserMarker(map, userCoords);
   }, [userCoords]);
 
   return (

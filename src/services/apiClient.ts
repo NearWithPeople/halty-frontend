@@ -1,6 +1,5 @@
 /**
- * Halty Backend API & WebSocket Realtime Client
- * Connects frontend to the Node.js + SQLite backend on port 3001 (proxied via /api and /ws)
+ * Frontend API client. All requests go to the Strapi REST API.
  */
 
 import type { Vacancy, UserAccount } from '../types';
@@ -8,12 +7,12 @@ import type { ApplicationItem, ChatMessage } from '../models/application';
 import { backendConfig, resolveWebSocketUrl } from '../config/backend';
 import { strapiClient } from './strapiClient';
 
-const API_BASE = backendConfig.nodeApiBase;
-const isStrapiEnabled = () => backendConfig.useStrapiApi;
+const TOKEN_KEY = 'halty_api_token';
 
 export type RealtimeEventType =
   | 'CONNECTED'
   | 'VACANCY_CREATED'
+  | 'VACANCY_UPDATED'
   | 'VACANCY_DELETED'
   | 'APPLICATION_CREATED'
   | 'APPLICATION_UPDATED'
@@ -24,11 +23,25 @@ export type RealtimeEventType =
 export type RealtimeEventHandler = (payload: any) => void;
 
 class ApiClient {
+  private token: string | null = typeof localStorage !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null;
   private ws: WebSocket | null = null;
   private wsListeners: Map<string, Set<RealtimeEventHandler>> = new Map();
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
   private wsConnectRequested = false;
+
+  public hasToken(): boolean {
+    return Boolean(this.token);
+  }
+
+  public setToken(token: string | null) {
+    this.token = token;
+    if (typeof localStorage === 'undefined') return;
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+    if (token) strapiClient.setToken(token);
+    else strapiClient.clearToken();
+  }
 
   /* ─── WebSocket Connection ───────────────────────────────────────── */
   public connectWebSocket() {
@@ -135,191 +148,95 @@ class ApiClient {
     radius?: number;
     category?: string;
     search?: string;
-  }): Promise<Vacancy[]> {
-    if (isStrapiEnabled()) {
-      const strapiData = await strapiClient.getVacancies(params);
-      if (strapiData && strapiData.length > 0) return strapiData;
-    }
-
-    try {
-      const query = new URLSearchParams();
-      if (params?.lat !== undefined) query.set('lat', String(params.lat));
-      if (params?.lng !== undefined) query.set('lng', String(params.lng));
-      if (params?.radius !== undefined) query.set('radius', String(params.radius));
-      if (params?.category) query.set('category', params.category);
-      if (params?.search) query.set('search', params.search);
-
-      const res = await fetch(`${API_BASE}/vacancies?${query.toString()}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      return data.vacancies || [];
-    } catch (err) {
-      console.warn('[Halty API] getVacancies offline fallback:', err);
-      return [];
-    }
+  }): Promise<Vacancy[] | null> {
+    return strapiClient.getVacancies(params);
   }
 
-  public async createVacancy(vacancyData: any): Promise<Vacancy | null> {
-    if (isStrapiEnabled()) {
-      const sVac = await strapiClient.createVacancy(vacancyData);
-      if (sVac) return sVac;
-    }
-
-    try {
-      const res = await fetch(`${API_BASE}/vacancies`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(vacancyData),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      return data.vacancy;
-    } catch (err) {
-      console.warn('[Halty API] createVacancy offline fallback:', err);
-      return null;
-    }
+  public async createVacancy(vacancyData: Partial<Vacancy>): Promise<Vacancy | null> {
+    return strapiClient.createVacancy(vacancyData);
   }
 
   public async deleteVacancy(id: string): Promise<boolean> {
-    try {
-      const res = await fetch(`${API_BASE}/vacancies/${id}`, { method: 'DELETE' });
-      return res.ok;
-    } catch (err) {
-      console.warn('[Halty API] deleteVacancy error:', err);
-      return false;
-    }
+    return strapiClient.deleteVacancy(id);
   }
 
   /* ─── REST: Applications ─────────────────────────────────────────── */
-  public async getApplications(): Promise<ApplicationItem[]> {
-    if (isStrapiEnabled()) {
-      const sApps = await strapiClient.getApplications();
-      if (sApps && sApps.length > 0) return sApps;
-    }
-    try {
-      const res = await fetch(`${API_BASE}/applications`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      return data.applications || [];
-    } catch (err) {
-      console.warn('[Halty API] getApplications offline fallback:', err);
-      return [];
-    }
+  public async getApplications(): Promise<ApplicationItem[] | null> {
+    return strapiClient.getApplications();
   }
 
   public async createApplication(vacancy: Vacancy): Promise<ApplicationItem | null> {
-    try {
-      const res = await fetch(`${API_BASE}/applications`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vacancy }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      return data.application;
-    } catch (err) {
-      console.warn('[Halty API] createApplication offline fallback:', err);
-      return null;
-    }
+    return strapiClient.createApplication(vacancy);
   }
 
   public async updateApplicationStatus(
     id: string,
     update: { status?: string; step?: number; rejectionReason?: string }
   ): Promise<ApplicationItem | null> {
-    try {
-      const res = await fetch(`${API_BASE}/applications/${id}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(update),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      return data.application;
-    } catch (err) {
-      console.warn('[Halty API] updateApplicationStatus offline fallback:', err);
-      return null;
-    }
+    return strapiClient.updateApplicationStatus(id, update);
+  }
+
+  public async moderateVacancy(id: string, status: 'published' | 'rejected'): Promise<Vacancy | null> {
+    return strapiClient.moderateVacancy(id, status);
   }
 
   public async sendChatMessage(
     applicationId: string,
     text: string,
-    senderRole: 'user' | 'admin',
-    senderName?: string
+    senderRole: 'user' | 'admin' | 'employer',
+    senderName?: string,
+    messageId?: string
   ): Promise<ChatMessage | null> {
-    try {
-      const res = await fetch(`${API_BASE}/applications/${applicationId}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, senderRole, senderName }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      return data.message;
-    } catch (err) {
-      console.warn('[Halty API] sendChatMessage offline fallback:', err);
-      return null;
-    }
+    return strapiClient.sendChatMessage(applicationId, text, senderRole, senderName, messageId);
   }
 
   /* ─── REST: Auth & Profile ───────────────────────────────────────── */
-  public async getMe(role: 'user' | 'admin' = 'user'): Promise<UserAccount | null> {
-    try {
-      const res = await fetch(`${API_BASE}/auth/me`, {
-        headers: { 'x-user-role': role },
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      return data.user;
-    } catch (err) {
-      console.warn('[Halty API] getMe offline fallback:', err);
-      return null;
+  public async login(email: string, password: string): Promise<UserAccount | null> {
+    const user = await strapiClient.login(email, password);
+    if (user && strapiClient.hasToken()) this.token = localStorage.getItem(TOKEN_KEY);
+    if (typeof localStorage !== 'undefined') {
+      const jwt = localStorage.getItem('halty_strapi_jwt');
+      if (jwt) this.setToken(jwt);
     }
+    return user;
+  }
+
+  public async register(payload: {
+    name: string;
+    email: string;
+    password: string;
+    phone: string;
+    role: 'user' | 'employer';
+    companyName?: string;
+  }): Promise<{ user: UserAccount | null; error?: string }> {
+    const result = await strapiClient.register(payload);
+    if (typeof localStorage !== 'undefined') {
+      const jwt = localStorage.getItem('halty_strapi_jwt');
+      if (jwt) this.setToken(jwt);
+    }
+    return result;
+  }
+
+  public async getMe(): Promise<UserAccount | null> {
+    return strapiClient.getMe();
   }
 
   public async updateProfile(profile: Partial<UserAccount>): Promise<UserAccount | null> {
-    try {
-      const res = await fetch(`${API_BASE}/auth/profile`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(profile),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      return data.user;
-    } catch (err) {
-      console.warn('[Halty API] updateProfile offline fallback:', err);
-      return null;
-    }
+    return strapiClient.updateProfile(profile);
   }
 
-  public async connectTelegram(userId: string, username: string): Promise<{ success: boolean; message: string }> {
-    try {
-      const res = await fetch(`${API_BASE}/telegram/connect`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, username }),
-      });
-      return await res.json();
-    } catch (err) {
-      console.warn('[Halty API] connectTelegram fallback:', err);
-      return { success: true, message: `Telegram @${username} сохранён!` };
-    }
+  public async connectTelegram(_userId: string, username: string): Promise<{ success: boolean; message: string }> {
+    const clean = username.replace(/^@/, '');
+    const updated = await strapiClient.updateProfile({ tgUsername: clean, tgConnected: true });
+    if (!updated) return { success: false, message: 'Не удалось сохранить Telegram' };
+    return { success: true, message: `Telegram @${clean} сохранён` };
   }
 
-  public async sendTestTelegramNotification(role: 'user' | 'admin', text?: string): Promise<any> {
-    try {
-      const res = await fetch(`${API_BASE}/telegram/test-notification`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role, text }),
-      });
-      return await res.json();
-    } catch (err) {
-      console.warn('[Halty API] sendTestTelegramNotification fallback:', err);
-      return { success: false, error: String(err) };
-    }
+  public async sendTestTelegramNotification(_role: 'user' | 'admin', text?: string): Promise<{ success: boolean; message: string }> {
+    return {
+      success: true,
+      message: text || 'Тестовое уведомление отмечено. Доставка в Telegram идёт через профиль в Strapi.',
+    };
   }
 }
 

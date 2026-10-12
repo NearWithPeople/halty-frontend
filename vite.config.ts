@@ -12,17 +12,13 @@ export default defineConfig(({ mode }) => ({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: 'http://localhost:1337',
         changeOrigin: true,
       },
-      '/ws': {
-        target: 'ws://localhost:3001',
-        ws: true,
-      },
-      // Strapi (halty-backend) — same-origin in dev, no CORS
       '/cms': {
         target: 'http://localhost:1337',
         changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/cms/, ''),
       },
     },
   },

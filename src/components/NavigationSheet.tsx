@@ -8,7 +8,7 @@ import {
   FileCheck2, ShieldAlert, RefreshCw, ClipboardList,
 } from 'lucide-react';
 import type { Vacancy, Coordinates, UserRole } from '../types';
-import type { ApplicationItem, ChatMessage } from '../models/application';
+import type { ApplicationItem } from '../models/application';
 import { isEmployerSide } from '../utils/roles';
 import { dbStore } from '../services/dbStore';
 import {
@@ -19,6 +19,17 @@ import {
 } from '../services/mapbox';
 
 function findVacancyForApplication(app: ApplicationItem, vacancies: Vacancy[]): Vacancy | null {
+  if (app.vacancyId) {
+    const byVacancyId = vacancies.find((vacancy) => vacancy.id === app.vacancyId);
+    if (byVacancyId) return byVacancyId;
+  }
+
+  if (app.id.startsWith('app::')) {
+    const vacId = app.id.split('::').slice(2).join('::');
+    const byId = vacancies.find((v) => v.id === vacId);
+    if (byId) return byId;
+  }
+
   if (app.id.startsWith('app-vac-')) {
     const vacId = app.id.slice('app-vac-'.length);
     const byId = vacancies.find((v) => v.id === vacId);
@@ -1193,7 +1204,7 @@ const ChatInterface: React.FC<{
   onBack: () => void;
   onUpdate: (app: ApplicationItem) => void;
   userRole?: UserRole;
-}> = ({ app, onBack, onUpdate, userRole = 'user' }) => {
+}> = ({ app, onBack, userRole = 'user' }) => {
   const [text, setText] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -1206,49 +1217,8 @@ const ChatInterface: React.FC<{
     if (!trimmed) return;
 
     const sender = isEmployerSide(userRole ?? 'user') ? 'employer' : 'user';
-
-    const newMsg: ChatMessage = {
-      id: `m${Date.now()}`,
-      text: trimmed,
-      from: sender,
-      time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }),
-    };
-
-    const updated = {
-      ...app,
-      messages: [...app.messages, newMsg],
-    };
-    onUpdate(updated);
+    dbStore.sendChatMessage(app.id, trimmed, sender);
     setText('');
-
-    // Contextual simulated responses
-    setTimeout(() => {
-      const isFromAdmin = sender === 'employer';
-      const userReplies = [
-        'Спасибо за ответ! Я всё понял, буду вовремя.',
-        'Отлично, беру с собой паспорт. До встречи!',
-        'Принято, выезжаю заранее.',
-      ];
-      const employerReplies = [
-        `Спасибо за сообщение! Координатор по вакансии «${app.role}» свяжется с вами за 1 час до начала смены.`,
-        `Добрый день! Мы получили ваше сообщение. Не забудьте взять с собой документ, удостоверяющий личность.`,
-        `Принято! По адресу ${app.location} вас встретит администратор смены.`,
-      ];
-
-      const replies = isFromAdmin ? userReplies : employerReplies;
-      const randomReply = replies[Math.floor(Math.random() * replies.length)];
-
-      const reply: ChatMessage = {
-        id: `m${Date.now()}r`,
-        text: randomReply,
-        from: isFromAdmin ? 'user' : 'employer',
-        time: new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }),
-      };
-      onUpdate({
-        ...updated,
-        messages: [...updated.messages, reply],
-      });
-    }, 1100);
   };
 
   return (

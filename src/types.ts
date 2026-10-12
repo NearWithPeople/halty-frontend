@@ -103,6 +103,8 @@ export interface Vacancy {
   createdByRole?: 'admin' | 'employer';
   /** Кто создал смену (пользовательские vac-custom-* можно снять с публикации) */
   createdByUserId?: string;
+  /** pending — ждёт админа, published — на карте, rejected — отклонена */
+  moderationStatus?: 'pending' | 'published' | 'rejected';
 }
 
 export type UserRole = 'user' | 'employer' | 'admin';

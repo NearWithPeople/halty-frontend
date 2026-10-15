@@ -1,61 +1,27 @@
 import type { Vacancy, UserAccount, UserRole, Coordinates, VacancyCategory } from '../types';
 import { isEmployerSide } from '../utils/roles';
-import { MINSK_VACANCIES } from '../data/minskVacancies';
-import { INITIAL_APPLICATIONS } from '../data/initialApplications';
+import { MOCK_ACCOUNTS, MOCK_APPLICATIONS, MOCK_VACANCIES, type MockAccount } from '../mock/mockData';
 import type { ApplicationItem, ChatMessage } from '../models/application';
-import { apiClient } from './apiClient';
 
-/* ─── Default Pre-configured Accounts ───────────────────────────── */
+function withoutPassword(account: MockAccount): UserAccount {
+  const { password, ...user } = account;
+  void password;
+  return user;
+}
+
 export const DEFAULT_ACCOUNTS: Record<UserRole, UserAccount> = {
-  user: {
-    id: 'user-egor',
-    name: 'Егор Макаров',
-    email: 'egor.makarov@gmail.com',
-    phone: '+375 (29) 123-45-67',
-    role: 'user',
-    avatar: 'ЕМ',
-    rating: 4.9,
-    completedShifts: 14,
-    punctuality: '100%',
-    tgUsername: 'egormakarov',
-    tgConnected: true,
-  },
-  employer: {
-    id: 'employer-irina',
-    name: 'Ирина Савчук',
-    email: 'employer@halty.by',
-    phone: '+375 (44) 120-33-77',
-    role: 'employer',
-    avatar: 'ИС',
-    companyName: 'Логистик-Групп Минск',
-    rating: 4.9,
-    completedShifts: 0,
-    punctuality: '—',
-    tgUsername: 'irina_hr_logistic',
-    tgConnected: true,
-  },
-  admin: {
-    id: 'admin-halty',
-    name: 'Администратор Halty',
-    email: 'admin@halty.by',
-    phone: '+375 (17) 200-80-90',
-    role: 'admin',
-    avatar: 'АД',
-    companyName: 'Администрация сервиса (Работодатель)',
-    rating: 5.0,
-    completedShifts: 142,
-    punctuality: '100%',
-    tgUsername: 'halty_admin',
-    tgConnected: true,
-  },
+  user: withoutPassword(MOCK_ACCOUNTS.user),
+  employer: withoutPassword(MOCK_ACCOUNTS.employer),
+  admin: withoutPassword(MOCK_ACCOUNTS.admin),
 };
 
 const STORAGE_KEYS = {
-  USER: 'halty_current_user',
-  IS_AUTH: 'halty_is_authenticated',
-  VACANCIES: 'halty_vacancies_db',
-  APPLICATIONS: 'halty_applications_db',
-  FAVORITES: 'halty_favorites_db',
+  USER: 'halty_mock_user',
+  IS_AUTH: 'halty_mock_auth',
+  VACANCIES: 'halty_mock_vacancies',
+  APPLICATIONS: 'halty_mock_applications',
+  FAVORITES: 'halty_mock_favorites',
+  REGISTERED: 'halty_mock_registered',
 };
 
 type Listener = () => void;
@@ -70,15 +36,13 @@ class DatabaseStore {
   private applications: ApplicationItem[] = [];
   private favorites: Set<string> = new Set();
   private hasSyncedVacancies = false;
-  private pollTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
-    // 1. Load User & Auth from LocalStorage
     const savedUser = localStorage.getItem(STORAGE_KEYS.USER);
     const savedAuth = localStorage.getItem(STORAGE_KEYS.IS_AUTH);
 
     const savedSession = savedAuth !== null ? JSON.parse(savedAuth) === true : false;
-    this.isAuth = savedSession && apiClient.hasToken();
+    this.isAuth = savedSession;
     this.currentUser = savedUser ? JSON.parse(savedUser) : DEFAULT_ACCOUNTS.user;
 
     // 2. Load Vacancies from LocalStorage or seed
@@ -99,10 +63,10 @@ class DatabaseStore {
       try {
         this.applications = JSON.parse(savedApps);
       } catch {
-        this.applications = INITIAL_APPLICATIONS;
+        this.applications = MOCK_APPLICATIONS;
       }
     } else {
-      this.applications = INITIAL_APPLICATIONS;
+      this.applications = MOCK_APPLICATIONS;
     }
 
     // 4. Load Favorites
@@ -117,15 +81,12 @@ class DatabaseStore {
       this.favorites = new Set(['vac-1', 'vac-2']);
     }
 
+    this.hasSyncedVacancies = true;
     this.persist();
-
-    // 5. Realtime listeners + optional sync (Node server on :3001)
-    this.setupRealtimeListeners();
-    this.startApiSync();
   }
 
   private seedVacancies(): Vacancy[] {
-    return MINSK_VACANCIES.map((v) => ({
+    return MOCK_VACANCIES.map((v) => ({
       ...v,
       employerName: 'АДМИН', // "в графе работодатель пишется АДМИН чтобы было понятно"
       createdByRole: 'admin' as const,
@@ -176,116 +137,17 @@ class DatabaseStore {
     this.listeners.forEach((l) => l());
   }
 
-  /* ─── Realtime WebSocket Listeners ─────────────────────────────── */
-  private setupRealtimeListeners() {
-    // Vacancy created by admin
-    apiClient.on('VACANCY_CREATED', (newVac: Vacancy) => {
-      this.upsertLiveVacancy(newVac);
-    });
-
-    // Vacancy deleted
-    apiClient.on('VACANCY_DELETED', ({ id }: { id: string }) => {
-      this.vacancies = this.vacancies.filter((v) => v.id !== id);
-      this.persist();
-    });
-
-    apiClient.on('VACANCY_UPDATED', (vacancy: Vacancy) => {
-      this.upsertLiveVacancy(vacancy);
-    });
-
-    // Application created
-    apiClient.on('APPLICATION_CREATED', (app: ApplicationItem) => {
-      const idx = this.applications.findIndex((a) => a.id === app.id);
-      if (idx >= 0) {
-        this.applications[idx] = app;
-      } else {
-        this.applications = [app, ...this.applications];
-      }
-      this.persist();
-    });
-
-    // Application updated (e.g. status changed, stage advanced)
-    apiClient.on('APPLICATION_UPDATED', (app: ApplicationItem) => {
-      this.applications = this.applications.map((a) => (a.id === app.id ? app : a));
-      this.persist();
-    });
-
-    // New chat message arrived in realtime
-    apiClient.on('NEW_CHAT_MESSAGE', ({ applicationId, message }: { applicationId: string; message: any }) => {
-      this.applications = this.applications.map((a) => {
-        if (a.id === applicationId) {
-          const exists = a.messages.some((m) => m.id === message.id);
-          if (!exists) {
-            const chatMsg: ChatMessage = {
-              id: message.id,
-              text: message.text,
-              from: message.sender === 'user' ? 'user' : 'employer',
-              time: message.timestamp || new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }),
-            };
-            return {
-              ...a,
-              messages: [...a.messages, chatMsg],
-            };
-          }
-        }
-        return a;
-      });
-      this.persist();
-    });
-
-    // User profile updated
-    apiClient.on('USER_UPDATED', (user: UserAccount) => {
-      if (this.currentUser.id === user.id) {
-        this.currentUser = { ...this.currentUser, ...user };
-        this.persist();
-      }
-    });
-  }
-
-  /* ─── Backend Synchronization ──────────────────────────────────── */
-  private startApiSync() {
-    void this.syncWithBackend();
-    if (this.pollTimer) clearInterval(this.pollTimer);
-    this.pollTimer = setInterval(() => {
-      void this.syncWithBackend();
-    }, 4000);
-  }
-
-  private mergeApplications(incoming: ApplicationItem[]) {
-    const localById = new Map(this.applications.map((app) => [app.id, app]));
-    const merged = incoming.map((app) => {
-      const local = localById.get(app.id);
-      if (!local) return app;
-      const ids = new Set(app.messages.map((message) => message.id));
-      const extra = local.messages.filter((message) => message.id.startsWith('msg-') && !ids.has(message.id));
-      return extra.length > 0 ? { ...app, messages: [...app.messages, ...extra] } : app;
-    });
-    const incomingIds = new Set(merged.map((app) => app.id));
-    const pendingLocal = this.applications.filter(
-      (app) => app.id.startsWith('app::') && !incomingIds.has(app.id) && !incoming.some((item) => item.vacancyId && app.vacancyId === item.vacancyId)
-    );
-    this.applications = [...merged, ...pendingLocal];
-  }
-
-  private async syncWithBackend() {
+  private loadRegistered(): MockAccount[] {
     try {
-      const liveVacancies = await apiClient.getVacancies();
-      if (liveVacancies) {
-        for (const vacancy of liveVacancies) this.upsertLiveVacancy(vacancy);
-        const ids = new Set(liveVacancies.map((vacancy) => vacancy.id));
-        this.vacancies = this.vacancies.filter((vacancy) => ids.has(vacancy.id) || vacancy.id.startsWith('vac-custom-'));
-        this.hasSyncedVacancies = true;
-      }
-
-      if (this.isAuth && apiClient.hasToken()) {
-        const liveApps = await apiClient.getApplications();
-        if (liveApps) this.mergeApplications(liveApps);
-      }
-
-      this.persist();
-    } catch (e) {
-      console.warn('[Halty Sync] Backend sync error, using cached data:', e);
+      const raw = localStorage.getItem(STORAGE_KEYS.REGISTERED);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
     }
+  }
+
+  private saveRegistered(users: MockAccount[]) {
+    localStorage.setItem(STORAGE_KEYS.REGISTERED, JSON.stringify(users));
   }
 
   /* ─── Auth & Roles ────────────────────────────────────────────── */
@@ -301,12 +163,14 @@ class DatabaseStore {
     this.currentUser = user;
     this.isAuth = true;
     this.persist();
-    void this.syncWithBackend();
   }
 
   public async loginWithPassword(email: string, password: string): Promise<UserAccount | null> {
-    const user = await apiClient.login(email, password);
-    if (!user) return null;
+    const normalized = email.trim().toLowerCase();
+    const known = [...Object.values(MOCK_ACCOUNTS), ...this.loadRegistered()];
+    const match = known.find((account) => account.email.toLowerCase() === normalized && account.password === password);
+    if (!match) return null;
+    const user = withoutPassword(match);
     this.enterSession(user);
     return user;
   }
@@ -319,9 +183,31 @@ class DatabaseStore {
     role: 'user' | 'employer';
     companyName?: string;
   }): Promise<{ user: UserAccount | null; error?: string }> {
-    const result = await apiClient.register(payload);
-    if (result.user) this.enterSession(result.user);
-    return result;
+    const email = payload.email.trim().toLowerCase();
+    const known = [...Object.values(MOCK_ACCOUNTS), ...this.loadRegistered()];
+    if (known.some((account) => account.email.toLowerCase() === email)) {
+      return { user: null, error: 'Такой email уже зарегистрирован' };
+    }
+    if (payload.role === 'employer' && !payload.companyName?.trim()) {
+      return { user: null, error: 'Укажите название компании' };
+    }
+    const account: MockAccount = {
+      id: `local-${Date.now()}`,
+      name: payload.name.trim(),
+      email,
+      password: payload.password,
+      phone: payload.phone.trim(),
+      role: payload.role,
+      avatar: payload.name.replace(/\s+/g, '').slice(0, 2).toUpperCase() || 'ХЛ',
+      companyName: payload.companyName?.trim(),
+      rating: 5,
+      completedShifts: 0,
+      punctuality: '100%',
+    };
+    this.saveRegistered([...this.loadRegistered(), account]);
+    const user = withoutPassword(account);
+    this.enterSession(user);
+    return { user };
   }
 
   public login(role: UserRole = 'user') {
@@ -338,15 +224,10 @@ class DatabaseStore {
   public updateProfile(updated: Partial<UserAccount>) {
     this.currentUser = { ...this.currentUser, ...updated };
     this.persist();
-    // Sync with backend SQLite
-    apiClient.updateProfile({ id: this.currentUser.id, ...updated });
   }
 
   public logout() {
     this.isAuth = false;
-    apiClient.setToken(null);
-    apiClient.disconnectWebSocket();
-    void this.syncWithBackend();
     this.persist();
   }
 
@@ -412,27 +293,15 @@ class DatabaseStore {
       moderationStatus: this.currentUser.role === 'admin' ? 'published' : 'pending',
     };
 
-    // Optimistic update
     this.vacancies = [newVac, ...this.vacancies];
     this.persist();
-
-    // Persist to live backend SQLite
-    void apiClient.createVacancy(newVac).then((saved) => {
-      if (!saved) return;
-      this.vacancies = this.vacancies.map((v) => (v.id === newVac.id || v.id === saved.id ? saved : v));
-      if (!this.vacancies.some((v) => v.id === saved.id)) {
-        this.vacancies = [saved, ...this.vacancies];
-      }
-      this.persist();
-    });
-
     return newVac;
   }
 
   public moderateVacancy(id: string, status: 'published' | 'rejected') {
-    this.vacancies = this.vacancies.map((v) => (v.id === id ? { ...v, moderationStatus: status } : v));
-    this.persist();
-    void apiClient.moderateVacancy(id, status);
+    const current = this.vacancies.find((vacancy) => vacancy.id === id);
+    if (!current) return;
+    this.upsertLiveVacancy({ ...current, moderationStatus: status });
   }
 
   public canDeleteVacancy(vacancy: Vacancy): boolean {
@@ -462,7 +331,6 @@ class DatabaseStore {
     this.favorites.delete(id);
     this.applications = this.applications.filter((a) => a.id !== `app-vac-${id}`);
     this.persist();
-    apiClient.deleteVacancy(id);
     return { ok: true };
   }
 
@@ -509,14 +377,6 @@ class DatabaseStore {
     // Optimistic update
     this.applications = [newApp, ...this.applications];
     this.persist();
-
-    const saved = await apiClient.createApplication(vacancy);
-    if (saved) {
-      this.applications = this.applications.map((app) => (app.id === newApp.id ? { ...saved, vacancyId: saved.vacancyId ?? vacancy.id } : app));
-      this.persist();
-      return this.applications.find((app) => app.id === saved.id) ?? saved;
-    }
-
     return newApp;
   }
 
@@ -546,9 +406,6 @@ class DatabaseStore {
       return a;
     });
     this.persist();
-
-    // Sync to backend
-    apiClient.updateApplicationStatus(id, { step });
   }
 
   public approveApplication(id: string) {
@@ -573,9 +430,6 @@ class DatabaseStore {
       return a;
     });
     this.persist();
-
-    // Sync to backend SQLite & dispatch Telegram notification
-    apiClient.updateApplicationStatus(id, { status: 'active', step: 4 });
   }
 
   public rejectApplication(id: string, reason = 'Смена укомплектована') {
@@ -600,17 +454,12 @@ class DatabaseStore {
       return a;
     });
     this.persist();
-
-    // Sync to backend SQLite & dispatch Telegram notification
-    apiClient.updateApplicationStatus(id, { status: 'rejected', rejectionReason: reason });
   }
 
   public cancelApplication(id: string) {
-    let targetStatus = 'cancelled';
     this.applications = this.applications.map((a) => {
       if (a.id === id) {
         const isCancelled = a.status === 'cancelled';
-        targetStatus = isCancelled ? 'pending' : 'cancelled';
         return {
           ...a,
           status: isCancelled ? 'pending' : 'cancelled',
@@ -631,9 +480,6 @@ class DatabaseStore {
       return a;
     });
     this.persist();
-
-    // Sync to backend
-    apiClient.updateApplicationStatus(id, { status: targetStatus });
   }
 
   public updateApplication(app: ApplicationItem) {
@@ -662,22 +508,17 @@ class DatabaseStore {
       return a;
     });
     this.persist();
-
-    // Send to backend SQLite & trigger Telegram notification
-    const senderRole = this.currentUser.role === 'user' ? 'user' : this.currentUser.role === 'employer' ? 'employer' : 'admin';
-    apiClient.sendChatMessage(appId, trimmed, senderRole, this.currentUser.name, newMsg.id);
   }
 
   /* ─── Telegram Methods ─────────────────────────────────────────── */
   public async connectTelegram(username: string): Promise<{ success: boolean; message: string }> {
-    const res = await apiClient.connectTelegram(this.currentUser.id, username);
-    this.updateProfile({ tgUsername: username.replace(/^@/, ''), tgConnected: true });
-    return res;
+    const clean = username.replace(/^@/, '');
+    this.updateProfile({ tgUsername: clean, tgConnected: true });
+    return { success: true, message: `Telegram @${clean} сохранён локально` };
   }
 
-  public async sendTestTelegramPush(role: UserRole = 'user'): Promise<any> {
-    const apiRole = role === 'user' ? 'user' : 'admin';
-    return await apiClient.sendTestTelegramNotification(apiRole);
+  public async sendTestTelegramPush(_role: UserRole = 'user'): Promise<{ success: boolean; message: string }> {
+    return { success: true, message: 'Мок: уведомление показано только в интерфейсе' };
   }
 
   /* ─── Favorites ────────────────────────────────────────────────── */

@@ -4,7 +4,7 @@ import {
   getPlatformMembers,
   type PlatformMember,
   type PlatformMemberKind,
-} from '../data/platformUsers';
+} from '../mock/mockData';
 
 interface AdminMembersModalProps {
   isOpen: boolean;

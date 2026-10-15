@@ -1,6 +1,337 @@
-import type { Vacancy } from '../types';
+/**
+ * Единственный файл с мок-данными фронта.
+ * Бэкенд не используется. Чтобы убрать моки, удалите этот файл
+ * и импорты из dbStore.ts, AdminMembersModal.tsx и LibraryPage.tsx.
+ */
+import type { UserAccount, UserRole, Vacancy } from '../types';
+import type { ApplicationItem } from '../models/application';
 
-export const MINSK_VACANCIES: Vacancy[] = [
+export interface MockAccount extends UserAccount {
+  password: string;
+}
+
+export const MOCK_ACCOUNTS: Record<UserRole, MockAccount> = {
+  user: {
+    id: 'user-egor',
+    name: 'Егор Макаров',
+    email: 'egor.makarov@gmail.com',
+    password: 'user123',
+    phone: '+375 (29) 123-45-67',
+    role: 'user',
+    avatar: 'ЕМ',
+    rating: 4.9,
+    completedShifts: 14,
+    punctuality: '100%',
+    tgUsername: 'egormakarov',
+    tgConnected: true,
+  },
+  employer: {
+    id: 'employer-irina',
+    name: 'Ирина Савчук',
+    email: 'employer@halty.by',
+    password: 'employer2026',
+    phone: '+375 (44) 120-33-77',
+    role: 'employer',
+    avatar: 'ИС',
+    companyName: 'Логистик-Групп Минск',
+    rating: 4.9,
+    completedShifts: 0,
+    punctuality: '—',
+    tgUsername: 'irina_hr_logistic',
+    tgConnected: true,
+  },
+  admin: {
+    id: 'admin-halty',
+    name: 'Администратор Halty',
+    email: 'admin@halty.by',
+    password: 'admin2026',
+    phone: '+375 (17) 200-80-90',
+    role: 'admin',
+    avatar: 'АД',
+    companyName: 'Администрация сервиса (Работодатель)',
+    rating: 5.0,
+    completedShifts: 142,
+    punctuality: '100%',
+    tgUsername: 'halty_admin',
+    tgConnected: true,
+  },
+};
+
+export type PlatformMemberKind = 'employer' | 'executor';
+
+export interface PlatformMember {
+  id: string;
+  kind: PlatformMemberKind;
+  name: string;
+  email: string;
+  phone: string;
+  avatar: string;
+  companyName?: string;
+  rating?: number;
+  completedShifts?: number;
+  verified: boolean;
+  registeredAt: string;
+  city: string;
+}
+
+export const DEMO_PLATFORM_EMPLOYERS: PlatformMember[] = [
+  {
+    id: 'emp-1',
+    kind: 'employer',
+    name: 'Администратор Halty',
+    email: 'admin@halty.by',
+    phone: '+375 (17) 200-80-90',
+    avatar: 'АД',
+    companyName: 'ООО «Халти Технологии»',
+    rating: 5.0,
+    verified: true,
+    registeredAt: '2024-01-12',
+    city: 'Минск',
+  },
+  {
+    id: 'emp-2',
+    kind: 'employer',
+    name: 'Анна Коваль',
+    email: 'hr@zerno.coffee',
+    phone: '+375 (29) 555-12-01',
+    avatar: 'АК',
+    companyName: 'Кофейня «Зерно»',
+    rating: 4.8,
+    verified: true,
+    registeredAt: '2024-06-03',
+    city: 'Минск',
+  },
+  {
+    id: 'emp-3',
+    kind: 'employer',
+    name: 'Дмитрий Лещук',
+    email: 'staff@green-hyper.by',
+    phone: '+375 (33) 701-44-88',
+    avatar: 'ДЛ',
+    companyName: 'Green Гипермаркет',
+    rating: 4.6,
+    verified: true,
+    registeredAt: '2024-08-19',
+    city: 'Минск',
+  },
+  {
+    id: 'emp-4',
+    kind: 'employer',
+    name: 'Ирина Савчук',
+    email: 'employer@halty.by',
+    phone: '+375 (44) 120-33-77',
+    avatar: 'ИС',
+    companyName: 'Логистик-Групп Минск',
+    rating: 4.9,
+    verified: false,
+    registeredAt: '2025-11-02',
+    city: 'Минск',
+  },
+  {
+    id: 'emp-5',
+    kind: 'employer',
+    name: 'Павел Жук',
+    email: 'events@falconclub.by',
+    phone: '+375 (29) 880-21-09',
+    avatar: 'ПЖ',
+    companyName: 'Falcon Club',
+    rating: 4.7,
+    verified: true,
+    registeredAt: '2025-02-14',
+    city: 'Минск',
+  },
+];
+
+export const DEMO_PLATFORM_EXECUTORS: PlatformMember[] = [
+  {
+    id: 'exec-1',
+    kind: 'executor',
+    name: 'Егор Макаров',
+    email: 'egor.makarov@gmail.com',
+    phone: '+375 (29) 123-45-67',
+    avatar: 'ЕМ',
+    rating: 4.9,
+    completedShifts: 14,
+    verified: true,
+    registeredAt: '2024-03-20',
+    city: 'Минск',
+  },
+  {
+    id: 'exec-2',
+    kind: 'executor',
+    name: 'Мария Волкова',
+    email: 'maria.v@mail.ru',
+    phone: '+375 (25) 901-22-18',
+    avatar: 'МВ',
+    rating: 4.7,
+    completedShifts: 31,
+    verified: true,
+    registeredAt: '2024-05-11',
+    city: 'Минск',
+  },
+  {
+    id: 'exec-3',
+    kind: 'executor',
+    name: 'Артём Сидоренко',
+    email: 'artem.sidor@gmail.com',
+    phone: '+375 (29) 712-08-44',
+    avatar: 'АС',
+    rating: 4.5,
+    completedShifts: 8,
+    verified: false,
+    registeredAt: '2025-09-01',
+    city: 'Минск',
+  },
+  {
+    id: 'exec-4',
+    kind: 'executor',
+    name: 'Ксения Романова',
+    email: 'ksenia.r@yandex.by',
+    phone: '+375 (33) 640-55-90',
+    avatar: 'КР',
+    rating: 5.0,
+    completedShifts: 22,
+    verified: true,
+    registeredAt: '2024-11-07',
+    city: 'Минск',
+  },
+  {
+    id: 'exec-5',
+    kind: 'executor',
+    name: 'Никита Олехнович',
+    email: 'nikita.o@gmail.com',
+    phone: '+375 (44) 501-77-33',
+    avatar: 'НО',
+    rating: 4.4,
+    completedShifts: 5,
+    verified: true,
+    registeredAt: '2026-01-18',
+    city: 'Минск',
+  },
+  {
+    id: 'exec-6',
+    kind: 'executor',
+    name: 'Виктория Нестер',
+    email: 'v.nester@icloud.com',
+    phone: '+375 (29) 333-66-11',
+    avatar: 'ВН',
+    rating: 4.8,
+    completedShifts: 19,
+    verified: true,
+    registeredAt: '2025-04-22',
+    city: 'Минск',
+  },
+];
+
+export function getPlatformMembers(kind: PlatformMemberKind): PlatformMember[] {
+  return kind === 'employer' ? DEMO_PLATFORM_EMPLOYERS : DEMO_PLATFORM_EXECUTORS;
+}
+
+export const MOCK_APPLICATIONS: ApplicationItem[] = [
+  {
+    id: 'app-1',
+    role: 'Грузчик для переезда бренд-офиса',
+    company: 'Logistics Pro Minsk',
+    status: 'active',
+    statusLabel: 'Активен',
+    location: 'г. Минск, ул. Громова 30',
+    coordinates: { lng: 27.4475, lat: 53.8614 },
+    salary: 'Оплата 45 Br за смену',
+    scheduleDate: 'с 08:00 по 12:00 2 июня 2026',
+    duration: '4 часа',
+    walkTime: '~10 минут пешком',
+    color: '#6366f1',
+    appliedDate: '1 июня 2026',
+    progressStep: 4,
+    description: 'Погрузка и разгрузка мебели и оргтехники при офисном переезде. Работа в паре с опытным бригадиром.',
+    requirementsNotes: ['Опрятный внешний вид', 'Физическая выносливость'],
+    messages: [
+      { id: 'm1', text: 'Здравствуйте! Вы приняты на смену 2 июня к 08:00.', from: 'employer', time: '14:20', isSystem: true },
+      { id: 'm2', text: 'Отлично, буду вовремя на Громова 30.', from: 'user', time: '14:25' },
+    ],
+  },
+  {
+    id: 'app-2',
+    role: 'Сотрудник бригады ресторана: смена',
+    company: 'Сеть ресторанов Galileo',
+    status: 'pending',
+    statusLabel: 'Ожидает',
+    location: 'г. Минск, ул. Ленина 15 (ТЦ "Galileo")',
+    coordinates: { lng: 27.5518, lat: 53.8906 },
+    salary: 'Оплата от 70 Br за смену + питание',
+    scheduleDate: 'с 08:00 16 июня 2026 по 21:00 17 июня 2026 (8 часов)',
+    duration: '8 часов',
+    walkTime: '~15 минут пешком',
+    color: '#eab308',
+    appliedDate: 'Сегодня, 11:20',
+    progressStep: 3,
+    description:
+      'Приятная подработка в ведущей сети ресторанов быстрого обслуживания в Беларуси на стабильных условиях, гибким графиком и удобной локацией.\n\nВ задачи будет входить работа с товаром и складским оборудованием, отслеживание сроков годности сырья и его маркировка, уборка торгового зала ресторана, вынос мусора и мойка подносов.',
+    requirementsNotes: [
+      'Для работы необходима медсправка*',
+      'Доступно с 14 лет с согласием законного представителя*',
+    ],
+    messages: [
+      { id: 'm1', text: 'Ваша заявка на смену 16-17 июня зарегистрирована.', from: 'employer', time: '11:20', isSystem: true },
+      { id: 'm2', text: 'Создатель заявки просмотрел ваш отклик.', from: 'employer', time: '11:45', isSystem: true },
+    ],
+  },
+  {
+    id: 'app-3',
+    role: 'Волонтер на фестивале еды в ларьке',
+    company: 'Minsk Street Food Fest',
+    status: 'cancelled',
+    statusLabel: 'Отменён',
+    location: 'г. Минск, пр. Победителей 14',
+    coordinates: { lng: 27.5358, lat: 53.9126 },
+    salary: 'Оплата 35 Br за смену',
+    scheduleDate: 'с 12:00 по 18:00 10 мая 2026',
+    duration: '6 часов',
+    color: '#94a3b8',
+    appliedDate: '8 мая 2026',
+    progressStep: 1,
+    description: 'Помощь в организации зоны раздачи напитков и поддержание порядка.',
+    messages: [
+      { id: 'm1', text: 'Отклик был отменён соискателем.', from: 'user', time: '9 мая', isSystem: true },
+    ],
+  },
+  {
+    id: 'app-4',
+    role: 'Волонтер на марафоне',
+    company: 'Minsk Marathon Group',
+    status: 'cancelled',
+    statusLabel: 'Отменён',
+    location: 'г. Минск, Парк Победы',
+    coordinates: { lng: 27.5372, lat: 53.9216 },
+    salary: 'Оплата 40 Br за смену',
+    scheduleDate: 'с 09:00 по 15:00 24 апреля 2026',
+    duration: '6 часов',
+    color: '#94a3b8',
+    appliedDate: '20 апр 2026',
+    progressStep: 1,
+    description: 'Координация участников на дистанции, выдача воды и медалей на финише.',
+    messages: [],
+  },
+  {
+    id: 'app-5',
+    role: 'Работник зеленого строительства',
+    company: 'Минскзеленстрой',
+    status: 'cancelled',
+    statusLabel: 'Отменён',
+    location: 'г. Минск, Сквер Адама Мицкевича',
+    coordinates: { lng: 27.5489, lat: 53.8984 },
+    salary: 'Оплата 50 Br за смену',
+    scheduleDate: 'с 08:00 по 16:00 12 апреля 2026',
+    duration: '8 часов',
+    color: '#94a3b8',
+    appliedDate: '10 апр 2026',
+    progressStep: 1,
+    description: 'Благоустройство парковых зон, стрижка газонов и уход за кустарниками.',
+    messages: [],
+  },
+];
+
+export const MOCK_VACANCIES: Vacancy[] = [
   // 1. Из скриншота: Сквер Адама Мицкевича
   {
     id: 'vac-1',

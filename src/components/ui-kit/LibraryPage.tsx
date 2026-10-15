@@ -14,7 +14,7 @@ import { VacancyModal } from '../VacancyModal';
 import { CompanyModal } from '../CompanyModal';
 import { UserProfileBlock } from '../UserProfileBlock';
 import { NavigationSheet, ApplicationDetailView } from '../NavigationSheet';
-import { INITIAL_APPLICATIONS } from '../../data/initialApplications';
+import { MOCK_APPLICATIONS as INITIAL_APPLICATIONS } from '../../mock/mockData';
 import { ProfileDropdownModal } from '../ProfileDropdownModal';
 import type { Vacancy, UserAccount } from '../../types';
 

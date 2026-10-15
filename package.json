@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k \"npm run develop --prefix ../halty-backend\" \"vite\"",
-    "dev:all": "concurrently -k \"npm run develop --prefix ../halty-backend\" \"vite\"",
+    "dev": "vite",
+    "dev:all": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview"

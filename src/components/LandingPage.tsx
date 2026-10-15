@@ -16,6 +16,7 @@ import {
   Flame
 } from 'lucide-react';
 import { dbStore } from '../services/dbStore';
+import { MOCK_ACCOUNTS } from '../mock/mockData';
 import type { UserRole } from '../types';
 
 interface LandingPageProps {
@@ -35,12 +36,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
   const [authError, setAuthError] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('all');
 
+  const fillEmployeeLogin = () => {
+    setAuthRole('user');
+    setAuthEmail(MOCK_ACCOUNTS.user.email);
+    setAuthPassword(MOCK_ACCOUNTS.user.password);
+  };
+
   const handleOpenAuth = (role: 'user' | 'employer' = 'user', mode: 'login' | 'register' = 'register') => {
     setAuthRole(role);
     setAuthMode(mode);
     setAuthError('');
-    setAuthEmail('');
-    setAuthPassword('');
+    if (mode === 'login') fillEmployeeLogin();
+    else {
+      setAuthEmail('');
+      setAuthPassword('');
+    }
     setIsAuthModalOpen(true);
   };
 
@@ -696,7 +706,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
               <p className="text-xs text-slate-400 mt-1">
                 {authMode === 'register'
                   ? 'Исполнитель ищет смены, работодатель публикует их'
-                  : 'Введите email и пароль, указанные при регистрации'}
+                  : 'Мок-сотрудник уже подставлен: можно сразу войти'}
               </p>
             </div>
 
@@ -815,11 +825,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
               <button
                 type="button"
                 onClick={() => {
-                  setAuthMode(authMode === 'login' ? 'register' : 'login');
+                  const next = authMode === 'login' ? 'register' : 'login';
+                  setAuthMode(next);
                   setAuthError('');
-                  setAuthEmail('');
-                  setAuthPassword('');
-                  if (authRole === 'admin') setAuthRole('user');
+                  if (next === 'login') fillEmployeeLogin();
+                  else {
+                    setAuthEmail('');
+                    setAuthPassword('');
+                    if (authRole === 'admin') setAuthRole('user');
+                  }
                 }}
                 className="text-xs text-emerald-300 hover:text-emerald-200"
               >

@@ -1,0 +1,106 @@
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
+  color: #94a3b8;
+  transition: background-color 0.15s, color 0.15s, transform 0.15s;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.icon-btn:hover {
+  background-color: #f1f5f9;
+  color: #1e293b;
+}
+
+.icon-btn:active {
+  transform: scale(0.9);
+}
+
+[data-theme='dark'] .icon-btn:hover {
+  background-color: #334155;
+  color: #f8fafc;
+}
+
+.btn-round {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 9999px;
+  background: #f1f5f9;
+  color: #181d38;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s, transform 0.15s;
+}
+
+.btn-round:hover {
+  background: #e2e8f0;
+}
+
+.btn-round:active {
+  transform: scale(0.95);
+}
+
+.btn-round-active,
+.btn-round-active:hover {
+  background: #181d38;
+  color: #ffffff;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+}
+
+.btn-round-invert:hover {
+  background: #181d38;
+  color: #ffffff;
+}
+
+[data-theme='dark'] .btn-round {
+  background: #1e293b;
+  color: #f1f5f9;
+}
+
+[data-theme='dark'] .btn-round:hover {
+  background: #334155;
+}
+
+[data-theme='dark'] .btn-round-active,
+[data-theme='dark'] .btn-round-active:hover,
+[data-theme='dark'] .btn-round-invert:hover {
+  background: #181d38;
+  color: #ffffff;
+}
+
+.btn-chip {
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: #f1f5f9;
+  color: #475569;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background-color 0.15s, color 0.15s, transform 0.15s;
+}
+
+.btn-chip:hover {
+  background: #e2e8f0;
+}
+
+.btn-chip:active {
+  transform: scale(0.9);
+}
+
+[data-theme='dark'] .btn-chip {
+  background: #1e293b;
+  color: #e2e8f0;
+}
+
+[data-theme='dark'] .btn-chip:hover {
+  background: #334155;
+}

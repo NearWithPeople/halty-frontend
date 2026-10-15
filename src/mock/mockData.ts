@@ -1,7 +1,7 @@
 /**
  * Единственный файл с мок-данными фронта.
  * Бэкенд не используется. Чтобы убрать моки, удалите этот файл
- * и импорты из dbStore.ts, AdminMembersModal.tsx и LibraryPage.tsx.
+ * и импорты из dbStore.ts, components/AdminMembersModal и components/ui-kit/LibraryPage.
  */
 import type { UserAccount, UserRole, Vacancy } from '../types';
 import type { ApplicationItem } from '../models/application';
